@@ -5,17 +5,17 @@ def main():
         browser = p.chromium.launch()
         page = browser.new_page()
 
-        # ★最初から検索画面に行く
-        page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/RightServlet?ActionName=PJC001Servlet")
+        # ★RIGHTだけ直接開く
+        page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/RightServlet")
 
         page.wait_for_load_state("networkidle")
 
-        # 検索ボタン
+        # ★検索ボタン
         page.click("input[name='btnSearch']")
 
         page.wait_for_timeout(3000)
 
-        # データ取得
+        # ★データ取得
         rows = page.query_selector_all("#tBody tr")
 
         print(f"件数: {len(rows)}")
@@ -29,6 +29,7 @@ def main():
             print("-----")
             print("番号:", cols[0].inner_text().strip())
             print("工事名:", cols[2].inner_text().strip())
+            print("日付:", cols[4].inner_text().strip())
 
         browser.close()
 
