@@ -16,51 +16,49 @@ def main():
             print("1. ポータル(URL1)にアクセス...")
             page.goto("http://ebid-portal.kumamoto-idc.pref.kumamoto.jp/", wait_until="networkidle")
             
-            print("2. 上フレーム(rtop)の「入札情報公開」をクリック...")
-            rtop = page.frame_locator('frame[name="rtop"]')
-            rtop.get_by_text("入札情報公開").first.click()
+            print("2. メニュー(rtop)から「入札情報公開」をクリック...")
+            # href属性が koukaisystem.html のリンクを狙い撃ち
+            page.frame_locator('frame[name="rtop"]').locator('a[href="koukaisystem.html"]').click()
             
-            print("3. 下フレーム(rbottom)の画像ボタンを捕捉...")
+            print("3. メイン(rbottom)にボタンが出るのを待機...")
             rbottom = page.frame_locator('frame[name="rbottom"]')
-            # 画像ボタン(botan02.gif)が読み込まれるのを待つ
-            target_img = rbottom.locator('img[src*="botan02.gif"]').first
-            target_img.wait_for(state="visible", timeout=15000)
+            # 教えていただいたリンク先URLを持つaタグを待機
+            target_link = rbottom.locator('a[href*="PPIAccepter/jsp"]').first
+            target_link.wait_for(state="visible", timeout=15000)
 
-            print("4. ポップアップ(URL2)を起動してキャッチ...")
-            # クリックと同時に開くウィンドウを即座に捕まえる
+            print("4. ポップアップを起動...")
             with page.expect_popup() as popup_info:
-                target_img.click()
+                target_link.click()
             
             ppi_page = popup_info.value
             ppi_page.wait_for_load_state("networkidle")
-            print("5. 本番ウィンドウ捕捉成功！")
+            print("5. 本番システム捕捉成功！")
 
-            # --- ここから本番ウィンドウの操作 ---
+            # --- ここから本番システム内の操作 ---
             print("6. 熊本県を選択...")
             ppi_page.locator(".ATYPE").first.click()
             ppi_page.wait_for_load_state("networkidle")
             time.sleep(3)
 
-            print("7. 検索画面へ遷移...")
-            # フレーム(frmRIGHT)内のリンクをクリック
-            ppi_page.frame_locator('frame[name="frmRIGHT"]').get_by_text("入札・契約情報の検索").first.click()
+            print("7. 検索メニューへ遷移...")
+            # ここもフレーム構造なので注意
+            frm_right = ppi_page.frame_locator('frame[name="frmRIGHT"]')
+            frm_right.get_by_text("入札・契約情報の検索").first.click()
             time.sleep(3)
             
             print("8. 検索実行...")
-            frm_right = ppi_page.frame_locator('frame[name="frmRIGHT"]')
             frm_top = frm_right.frame_locator('frame[name="frmTOP"]')
             frm_top.locator('input[name="btnSearch"]').click()
             
-            print("9. データを解析中...")
+            print("9. データを取得...")
             time.sleep(5)
             frm_bottom = frm_right.frame_locator('frame[name="frmBOTTOM"]')
-            # データ行が出るまで待機
             rows_locator = frm_bottom.locator("#tBody tr")
             rows_locator.first.wait_for(state="attached", timeout=30000)
             
             rows = rows_locator.all()
             scraped_data = []
-            print(f"\n--- 取得結果（1ページ目：{len(rows)}件） ---")
+            print(f"\n--- 1ページ目のデータ（{len(rows)}件） ---")
             for i, row in enumerate(rows):
                 cols = row.locator("td").all_text_contents()
                 clean_cols = [c.strip().replace('\n', ' ').replace('\t', ' ') for c in cols if c.strip()]
@@ -72,16 +70,15 @@ def main():
                 with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
                     writer = csv.writer(f)
                     writer.writerows(scraped_data)
-                print("\nresult.csv に保存完了！")
+                print("\nresult.csv に保存しました。")
 
         except Exception as e:
             print(f"エラー発生: {e}")
-            # ウィンドウが生きていれば証拠写真を撮る
-            shoot_target = ppi_page if ppi_page and not ppi_page.is_closed() else page
-            if not shoot_target.is_closed():
-                shoot_target.screenshot(path="debug_error.png", full_page=True)
+            target = ppi_page if ppi_page and not ppi_page.is_closed() else page
+            if not target.is_closed():
+                target.screenshot(path="debug_error.png", full_page=True)
                 with open("debug_page.html", "w", encoding="utf-8") as f:
-                    f.write(shoot_target.content())
+                    f.write(target.content())
         finally:
             browser.close()
 
