@@ -1,5 +1,6 @@
 from playwright.sync_api import sync_playwright
 import time
+import csv
 
 def main():
     with sync_playwright() as p:
@@ -8,60 +9,61 @@ def main():
         page = context.new_page()
 
         try:
-            print("1. 検索条件画面（btnSearchが存在する状態）まで進みます...")
+            print("1. 検索条件画面を表示...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
+            # メニューから検索画面呼び出し
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
-            time.sleep(10) # 構築待ち
+            time.sleep(10)
 
-            print("\n=== [操作前の全フレーム構成] ===")
-            for i, f in enumerate(page.frames):
-                print(f"Frame[{i}] Name: '{f.name}' | URL: {f.url}")
-
-            print("\n2. 検索実行（Detachedを覚悟して命令を投げます）...")
+            print("2. 検索実行（jsSearchを実行）...")
+            # 検索ボタンがあるフレームを特定して、JavaScriptで確実に発火
+            search_trigger_frame = None
             for f in page.frames:
-                try:
-                    btn = f.locator('input[name="btnSearch"]')
-                    if btn.count() > 0:
-                        # クリック後のエラーを避けるため、JavaScriptで非同期に発火
-                        print(f"★Frame '{f.name}' で検索実行命令を発行")
-                        f.evaluate('() => document.querySelector("input[name=\\"btnSearch\\"]").click()')
-                        break
-                except: continue
-
-            print("3. 画面の再構築をじっくり待ちます（20秒）...")
+                if f.locator('input[name="btnSearch"]').count() > 0:
+                    search_trigger_frame = f
+                    break
+            
+            if search_trigger_frame:
+                print(f"★フレーム '{search_trigger_frame.name}' で検索命令を出します。")
+                search_trigger_frame.evaluate("jsSearch();")
+            
+            print("3. フレームの再構築完了までじっくり待機（20秒）...")
+            # ここで「孫フレーム」が生成されるのを待ちます
             time.sleep(20)
 
-            print(f"\n=== [操作後の新世界スキャン] 現在のURL: {page.url} ===")
-            # この時点で「生き残っている」あるいは「新設された」フレームだけを見る
-            new_frames = page.frames
-            print(f"現存フレーム数: {len(new_frames)}")
-
-            for i, f in enumerate(new_frames):
-                try:
-                    # 解析の瞬間に消えないよう、URLとテキストだけを慎重に取得
-                    url = f.url
-                    text_preview = f.evaluate("() => document.body.innerText.substring(0, 100).replace(/\\n/g, ' ')")
-                    # テーブル（検索結果リスト）があるか確認
-                    has_result = f.evaluate("() => !!document.querySelector('#tBody') || document.querySelectorAll('table').length > 5")
+            print("4. 構築された全フレームから結果テーブルを捜索...")
+            found_data = False
+            for f in page.frames:
+                # 調査で判明した「#tBody」をターゲットにします
+                rows_locator = f.locator("#tBody tr")
+                if rows_locator.count() > 0:
+                    print(f"★成功！ フレーム '{f.name}' (URL: {f.url}) にて案件データを捕捉しました。")
                     
-                    print(f"\n[Frame {i}] Name: '{f.name}'")
-                    print(f"  URL: {url}")
-                    print(f"  内容: {text_preview}...")
-                    if has_result:
-                        print("  ★ここに検索結果（テーブル）がある可能性が高いです！")
-                except:
-                    print(f"[Frame {i}] 解析不可（すでに消滅または遷移中）")
-
-            # 最終的な画面を保存
-            page.screenshot(path="debug_after_click.png", full_page=True)
-            with open("debug_page.html", "w", encoding="utf-8") as file:
-                file.write(page.content())
-            print("\n調査完了。")
+                    rows = rows_locator.all()
+                    scraped_data = []
+                    for r in rows:
+                        cols = r.locator("td").all_text_contents()
+                        # 不要な空白・改行を除去
+                        clean_row = [c.strip().replace('\n', ' ').replace('\t', ' ') for c in cols if c.strip()]
+                        if clean_row:
+                            scraped_data.append(clean_row)
+                    
+                    if scraped_data:
+                        with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f_csv:
+                            writer = csv.writer(f_csv)
+                            writer.writerows(scraped_data)
+                        print(f"--- 取得完了: {len(scraped_data)} 件のデータを result.csv に保存しました ---")
+                        found_data = True
+                        break
+            
+            if not found_data:
+                print("!! 結果テーブルが見つかりませんでした。デバッグ画像を生成します。")
+                page.screenshot(path="debug_final_check.png", full_page=True)
 
         except Exception as e:
-            print("実行エラー: " + str(e))
+            print(f"エラー発生: {e}")
         finally:
             browser.close()
 
