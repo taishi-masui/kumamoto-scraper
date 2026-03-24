@@ -21,18 +21,19 @@ jobs:
       - name: ライブラリインストール
         run: |
           pip install -r requirements.txt
-          # ブラウザ本体と、実行に必要なシステム依存ライブラリを両方入れる
           playwright install chromium --with-deps
 
       - name: 実行
         run: python main.py
 
-      # エラー原因を特定するためにスクリーンショットとHTMLを保存する設定
-      - name: デバッグ用ファイルの保存
-        if: always() # 実行に失敗しても必ず実行する
+      # ここを修正：生成されたCSVとデバッグ用画像をすべて保存するようにします
+      - name: 成果物とデバッグ情報の保存
+        if: always() 
         uses: actions/upload-artifact@v4
         with:
-          name: debug-results
+          name: kumamoto-bid-results  # アーティファクトの名前
           path: |
-            debug_error.png
-            debug_page.html
+            result.csv
+            debug_after_click.png
+            debug_result_view.png
+          if-no-files-found: warn # ファイルがなくてもエラーにせず警告を出す
