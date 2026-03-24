@@ -7,56 +7,46 @@ def main():
 
         page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/MainServlet?Error=&Message=")
 
-        # ★フレームが出るまで待つ
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(5000)
 
-        # ★ここ修正（None対策）
+        # ★フレーム一覧を確認（デバッグ）
+        frames = page.frames
+        print("=== フレーム一覧 ===")
+        for f in frames:
+            print(f.name, f.url)
+
+        # ★frmLEFTを探す（確実版）
         left = None
-        for _ in range(10):
-            left = page.frame(name="frmLEFT")
-            if left:
+        for f in frames:
+            if "PJC001Servlet" in f.url:
+                left = f
                 break
-            page.wait_for_timeout(1000)
 
         if not left:
-            raise Exception("frmLEFTが取得できない")
+            raise Exception("LEFTフレーム見つからない")
 
-        # メニュークリック
         left.click("text=入札・契約情報の検索")
 
         page.wait_for_timeout(3000)
 
-        # 右フレーム取得（同じく待つ）
+        # ★RIGHTも同じやり方
+        frames = page.frames
         right = None
-        for _ in range(10):
-            right = page.frame(name="frmRIGHT")
-            if right:
+        for f in frames:
+            if "RightServlet" in f.url:
+                right = f
                 break
-            page.wait_for_timeout(1000)
 
         if not right:
-            raise Exception("frmRIGHTが取得できない")
+            raise Exception("RIGHTフレーム見つからない")
 
-        # 検索
         right.click("input[name='btnSearch']")
 
         page.wait_for_timeout(3000)
 
-        right = page.frame(name="frmRIGHT")
-
         rows = right.query_selector_all("#tBody tr")
 
         print(f"件数: {len(rows)}")
-
-        for row in rows:
-            cols = row.query_selector_all("td")
-
-            if len(cols) < 5:
-                continue
-
-            print("-----")
-            print(cols[0].inner_text().strip())
-            print(cols[2].inner_text().strip())
 
         browser.close()
 
