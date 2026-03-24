@@ -15,31 +15,39 @@ def main():
             print("1. URL1（ポータル）にアクセス...")
             page.goto("http://ebid-portal.kumamoto-idc.pref.kumamoto.jp/", wait_until="networkidle")
             
-            print("2. 画像ボタンをクリックしてポップアップ(URL2)を起動...")
-            # ★修正箇所：context ではなく page.expect_popup() を使用します
+            print("2. 「入札情報公開サービス」の文字をクリックしてボタンを表示させる...")
+            # テキストを正確に狙います（もしリンクなら .click()）
+            page.get_by_text("入札情報公開サービス").first.click()
+            
+            # ボタン画像が表示されるまで待機
+            print("3. 画像ボタンが表示されるのを待っています...")
+            img_button = page.locator('img[src*="botan02.gif"]').first
+            img_button.wait_for(state="visible", timeout=15000)
+
+            print("4. 画像ボタンをクリックしてポップアップ(URL2)を起動...")
+            # ここで page.expect_popup() を使用
             with page.expect_popup() as popup_info:
-                # 画像のソース名でフィルタリングしてクリック
-                page.locator('img[src*="botan02.gif"]').first.click()
+                img_button.click()
             
             # 操作対象を新しく開いたウィンドウに切り替え
             ppi_page = popup_info.value
             ppi_page.wait_for_load_state("networkidle")
-            print("3. 本番ウィンドウ(URL2)を捕捉しました。")
+            print("5. 本番ウィンドウ(URL2)を捕捉しました。")
 
-            # 4. 自治体（熊本県）を選択
-            print("4. 熊本県を選択...")
+            # 6. 自治体（熊本県）を選択
+            print("6. 熊本県を選択...")
             ppi_page.locator(".ATYPE").first.click()
             ppi_page.wait_for_load_state("networkidle")
             time.sleep(3)
 
-            # 5. 「入札・契約情報の検索」をクリック
-            print("5. 入札・契約情報の検索メニューへ...")
+            # 7. 「入札・契約情報の検索」をクリック
+            print("7. 入札・契約情報の検索メニューへ...")
             search_menu = ppi_page.get_by_text("入札・契約情報の検索").first
             search_menu.wait_for(state="visible", timeout=20000)
             search_menu.click()
             
-            # 6. 検索実行
-            print("6. 検索実行ボタンをクリック...")
+            # 8. 検索実行
+            print("8. 検索実行ボタンをクリック...")
             time.sleep(5)
             frm_right = ppi_page.frame_locator('frame[name="frmRIGHT"]')
             frm_top = frm_right.frame_locator('frame[name="frmTOP"]')
@@ -48,8 +56,8 @@ def main():
             btn_search.wait_for(state="visible", timeout=20000)
             btn_search.click()
             
-            # 7. データ取得（1ページ目）
-            print("7. データを取得中...")
+            # 9. データ取得
+            print("9. データを取得中...")
             time.sleep(5)
             frm_bottom = frm_right.frame_locator('frame[name="frmBOTTOM"]')
             result_rows = frm_bottom.locator("#tBody tr")
