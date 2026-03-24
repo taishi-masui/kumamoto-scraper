@@ -12,39 +12,55 @@ def main():
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
 
-            print("2. 調査で判明した jsLink(1,1) を直接実行...")
-            # ターゲットが見つかった frmTOP フレームを取得
-            # (frmLEFTでも動くはずですが、メイン画面側のfrmTOPの方が安定します)
-            target_frame = page.frame(name="frmTOP") or page.frame(name="frmLEFT")
-            
+            print("2. jsLink(1,1) を実行し、画面遷移を開始...")
+            # 安定していた frmTOP で実行
+            target_frame = page.frame(name="frmTOP")
             if target_frame:
-                print(f"ターゲットフレーム '{target_frame.name}' で関数を実行します。")
                 target_frame.evaluate("jsLink(1,1);")
             else:
-                print("!! ターゲットフレームが見つかりません。page全体で試行します。")
                 page.evaluate("jsLink(1,1);")
 
-            print("3. 検索条件入力画面(frmRIGHT)の安定を待ちます...")
-            time.sleep(7)
+            # フレームが壊れて作り直されるのをじっくり待つ
+            print("3. 画面の再構築を待ちます（15秒）...")
+            time.sleep(15) 
 
-            # 4. 最終確認: 検索実行ボタン(btnSearch)が frmRIGHT 内に出現したか
-            print("\n=== [最終確認] 検索ボタンの捜索 ===")
-            # 構造上、frmRIGHT の中のさらに子フレーム(frmTOPなど)にボタンがある可能性があるため、全フレームを再走査
-            found_btn = False
-            for f in page.frames:
-                btn = f.locator('input[name="btnSearch"]').first
-                if btn.count() > 0:
-                    print(f"★成功！ フレーム '{f.name}' 内に検索ボタン(btnSearch)を発見しました。")
-                    found_btn = True
-                    break
+            print(f"\n=== [遷移完了後の全フレーム調査] 現在のURL: {page.url} ===")
             
-            if not found_btn:
-                print("まだ検索ボタンが見つかりません。")
+            # 再構築された後の全フレームをリストアップ
+            current_frames = page.frames
+            print(f"検知された新フレーム数: {len(current_frames)}")
 
-            # エビデンス保存
+            for i, f in enumerate(current_frames):
+                try:
+                    # フレームが生きているか確認しながら情報を抜く
+                    f_name = f.name
+                    f_url = f.url
+                    
+                    # このフレームの中に「btnSearch」や「検索」があるか徹底調査
+                    elements = f.evaluate('''() => {
+                        return Array.from(document.querySelectorAll('input, a, button')).map(el => ({
+                            tag: el.tagName,
+                            text: el.innerText || el.value || el.alt || '',
+                            name: el.name || '',
+                            type: el.type || ''
+                        })).filter(e => e.text.includes('検索') || e.name.includes('Search'));
+                    }''')
+
+                    print(f"\n[Frame {i}] Name: '{f_name}' | URL: {f_url}")
+                    if elements:
+                        for idx, el in enumerate(elements):
+                            print(f"  ★発見 [{idx}] {el['tag']}({el['type']}) | Text: '{el['text']}' | Name: '{el['name']}'")
+                    else:
+                        print("  (検索ボタンに該当する要素は見つかりませんでした)")
+
+                except Exception as e:
+                    print(f"  [Frame {i}] 解析エラー（遷移中の可能性）: {e}")
+
+            # 最終的な画面を保存
             page.screenshot(path="debug_after_click.png", full_page=True)
             with open("debug_page.html", "w", encoding="utf-8") as file:
                 file.write(page.content())
+            print("\n調査完了。")
 
         except Exception as e:
             print("実行エラー: " + str(e))
