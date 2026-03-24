@@ -11,44 +11,54 @@ def main():
         page = context.new_page()
 
         try:
-            print("1. 自治体選択画面へアクセス...")
-            page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/MainServlet?Error=&Message=", 
-                      wait_until="networkidle")
-            
-            # 「熊本県」のロゴ（jsClick(1)）をクリック
-            print("2. 「熊本県」を選択します...")
-            # class="ATYPE" の 0番目（熊本県）をクリック
+            print("1. 自治体選択（熊本県）...")
+            page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/MainServlet?Error=&Message=", wait_until="networkidle")
             page.locator(".ATYPE").first.click()
-            
-            # 画面遷移とフレームの読み込みを待つ
-            time.sleep(5)
+            time.sleep(3)
 
-            # --- ここから検索画面への潜入 ---
-            print("3. 検索メニューフレームを探しています...")
-            # 自治体選択後は TopServlet の構造（frmRIGHTなど）に切り替わります
+            # メイン領域
             frm_right = page.frame_locator('frame[name="frmRIGHT"]')
-            
-            # まずは「工事」などのメニューが出るはずなので、
-            # 以前のコードで狙っていた「検索ボタン」があるフレームを探します
+
+            print("2. 「入札・契約情報の検索」をクリック...")
+            # 最初の画面にあるリンクテキストで特定
+            frm_right.get_by_text("入札・契約情報の検索").first.click()
+            time.sleep(3)
+
+            print("3. 検索実行（条件なしで検索ボタン押下）...")
+            # 検索条件フレーム内の「検索」ボタン
             frm_top = frm_right.frame_locator('frame[name="frmTOP"]')
             btn_search = frm_top.locator('input[name="btnSearch"]')
+            btn_search.wait_for(state="visible")
+            btn_search.click()
+            
+            print("4. 検索結果の待機...")
+            # 結果が表示される下のフレーム
+            frm_bottom = frm_right.frame_locator('frame[name="frmBOTTOM"]')
+            
+            # テーブルの行（tr）がアタッチされるのを待つ
+            # #tBody tr は検索結果一覧の本体部分です
+            result_rows_locator = frm_bottom.locator("#tBody tr")
+            result_rows_locator.first.wait_for(state="attached", timeout=30000)
+            
+            # 1ページ分の行をすべて取得
+            rows = result_rows_locator.all()
+            print(f"--- 1ページ目のデータ（計 {len(rows)} 件）を表示します ---")
 
-            # もし「検索ボタン」がまだ見えない場合、途中で「工事」などのボタンを押す必要があります
-            # 一旦、今の状態でボタンが見えるかチェック
-            if btn_search.count() > 0:
-                print("検索ボタン発見、クリックします。")
-                btn_search.click()
-            else:
-                print("検索ボタンがまだありません。現在の画面をデバッグ保存します。")
-                # ここで止まる場合は、メニュー選択（工事/物品など）が必要です
-                raise Exception("Search button not found in current frame")
+            for i, row in enumerate(rows):
+                # 行内の各セル(td)のテキストをリスト化
+                cols = row.locator("td").all_text_contents()
+                # 余計な空白や改行を除去
+                clean_cols = [c.strip().replace('\n', ' ').replace('\t', ' ') for c in cols if c.strip()]
+                
+                if clean_cols:
+                    # ログに出力して構造を確認
+                    print(f"Row {i+1}: {clean_cols}")
 
-            print("4. 結果取得...")
-            time.sleep(5)
-            # (以下、以前の取得ロジックへ続く)
+            print("--- 取得テスト完了 ---")
 
         except Exception as e:
-            print(f"エラーまたは分岐点: {e}")
+            print(f"エラー発生: {e}")
+            # 失敗した時の状態を保存
             page.screenshot(path="debug_error.png", full_page=True)
             with open("debug_page.html", "w", encoding="utf-8") as f:
                 f.write(page.content())
