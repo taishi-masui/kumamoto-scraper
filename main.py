@@ -8,58 +8,47 @@ def main():
         page = context.new_page()
 
         try:
-            print("--- Step 1: 直接URLで本番システムへ ---")
-            # 判明したURLへ直接ジャンプ
+            print("--- Step 1: 玄関口へアクセス ---")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/jsp/index.jsp", wait_until="networkidle")
-            print(f"現在のURL: {page.url}")
-
-            print("\n--- Step 2: 自治体選択（熊本県）の複数パターン試行 ---")
             
-            # 候補となるセレクタをリスト化
-            candidates = [
-                ("CSSクラス", page.locator(".ATYPE").first),
-                ("テキスト", page.get_by_text("熊本県").first),
-                ("画像Alt", page.locator('img[alt*="熊本県"]').first),
-                ("リンクURL", page.locator('a[href*="PrefKumamoto"]').first)
-            ]
+            # 時間差で3回スキャン（動的読み込みのチェック）
+            for wait_sec in [2, 5, 10]:
+                print(f"\n--- スキャン（アクセスから {wait_sec} 秒後） ---")
+                time.sleep(wait_sec)
+                
+                frames = page.frames
+                print(f"検知フレーム数: {len(frames)}")
+                
+                for i, f in enumerate(frames):
+                    try:
+                        print(f"  [Frame {i}] Name: '{f.name}' / URL: {f.url}")
+                        
+                        # 1. フレーム内の全ボタン/リンクのテキストを抽出
+                        elements = f.evaluate('''() => {
+                            const tags = Array.from(document.querySelectorAll('a, button, area, img, input'));
+                            return tags.map(t => ({
+                                tag: t.tagName,
+                                text: t.innerText || t.alt || t.value || '',
+                                id: t.id,
+                                src: t.src || ''
+                            })).filter(e => e.text.length > 0 || e.src.length > 0);
+                        }''')
+                        
+                        print(f"    要素数: {len(elements)}")
+                        for el in elements[:10]: # 最初の10個を表示
+                            print(f"      - {el['tag']}: '{el['text']}' (ID:{el['id']})")
+                            
+                    except Exception as e:
+                        print(f"    Frame {i} の解析に失敗: {e}")
 
-            success = False
-            for name, locator in candidates:
-                try:
-                    if locator.count() > 0:
-                        print(f"  [試行] {name} をクリックします...")
-                        locator.click()
-                        success = True
-                        break
-                except:
-                    continue
-
-            if not success:
-                print("!! すべてのクリック試行に失敗しました。")
-                # 最終手段：画面中央付近をクリック
-                page.mouse.click(400, 300) 
-
-            # 遷移待ち
-            print("\n--- Step 3: メニュー画面の構造解析 ---")
-            time.sleep(5)
-            
-            # ここで「入札・契約情報の検索」があるか確認
-            print(f"遷移後のURL: {page.url}")
-            
-            # フレーム構造を再チェック
-            frames = page.frames
-            print(f"検知フレーム数: {len(frames)}")
-            for i, f in enumerate(frames):
-                print(f"  Frame[{i}] Name: '{f.name}' URL: {f.url}")
-                # フレーム内のテキストを一部出力して中身を確認
-                content = f.evaluate("() => document.body.innerText.substring(0, 50)")
-                print(f"    内容(冒頭): {content}...")
+            # 最終的なHTMLを保存して、人間が目視で確認できるようにする
+            with open("structure_debug.html", "w", encoding="utf-8") as f:
+                f.write(page.content())
+            page.screenshot(path="structure_debug.png", full_page=True)
+            print("\n解析完了。HTMLとスクリーンショットを保存しました。")
 
         except Exception as e:
-            print(f"\nエラー詳細: {e}")
-            page.screenshot(path="debug_menu_check.png")
-            with open("debug_menu_check.html", "w", encoding="utf-8") as f:
-                f.write(page.content())
+            print(f"エラー: {e}")
         finally:
             browser.close()
 
