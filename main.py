@@ -6,29 +6,43 @@ def main():
         page = browser.new_page()
 
         page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/MainServlet?Error=&Message=")
-        page.wait_for_load_state("networkidle")
 
-        # 左フレーム
-        left = page.frame(name="frmLEFT")
+        # ★フレームが出るまで待つ
+        page.wait_for_timeout(3000)
+
+        # ★ここ修正（None対策）
+        left = None
+        for _ in range(10):
+            left = page.frame(name="frmLEFT")
+            if left:
+                break
+            page.wait_for_timeout(1000)
+
+        if not left:
+            raise Exception("frmLEFTが取得できない")
 
         # メニュークリック
         left.click("text=入札・契約情報の検索")
 
         page.wait_for_timeout(3000)
 
-        # 右フレーム
-        right = page.frame(name="frmRIGHT")
+        # 右フレーム取得（同じく待つ）
+        right = None
+        for _ in range(10):
+            right = page.frame(name="frmRIGHT")
+            if right:
+                break
+            page.wait_for_timeout(1000)
 
-        # 検索クリック
+        if not right:
+            raise Exception("frmRIGHTが取得できない")
+
+        # 検索
         right.click("input[name='btnSearch']")
 
         page.wait_for_timeout(3000)
 
         right = page.frame(name="frmRIGHT")
-
-        # =========================
-        # ★ここが本題（データ取得）
-        # =========================
 
         rows = right.query_selector_all("#tBody tr")
 
@@ -40,18 +54,9 @@ def main():
             if len(cols) < 5:
                 continue
 
-            number = cols[0].inner_text().strip()
-            category = cols[1].inner_text().strip()
-            title = cols[2].inner_text().strip()
-            method = cols[3].inner_text().strip()
-            date = cols[4].inner_text().strip()
-
             print("-----")
-            print("番号:", number)
-            print("業種:", category)
-            print("工事名:", title)
-            print("方法:", method)
-            print("日付:", date)
+            print(cols[0].inner_text().strip())
+            print(cols[2].inner_text().strip())
 
         browser.close()
 
