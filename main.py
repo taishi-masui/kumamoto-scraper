@@ -1,5 +1,4 @@
 from playwright.sync_api import sync_playwright
-import time
 
 def main():
     with sync_playwright() as p:
@@ -7,36 +6,52 @@ def main():
         page = browser.new_page()
 
         page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/MainServlet?Error=&Message=")
+        page.wait_for_load_state("networkidle")
 
-        # ★ フレームが増えるまで待つ
-        for i in range(10):
-            frames = page.frames
-            print(f"フレーム数: {len(frames)}")
-            if len(frames) > 1:
-                break
-            time.sleep(1)
+        # 左フレーム
+        left = page.frame(name="frmLEFT")
 
-        print("=== フレーム一覧 ===")
-        for f in page.frames:
-            print(f.url)
+        # メニュークリック
+        left.click("text=入札・契約情報の検索")
 
-        # ★ PJC001を探す
-        menu_frame = None
-        for f in page.frames:
-            if "PJC001Servlet" in f.url:
-                menu_frame = f
+        page.wait_for_timeout(3000)
 
-        if menu_frame is None:
-            raise Exception("PJC001フレームが見つからない")
+        # 右フレーム
+        right = page.frame(name="frmRIGHT")
 
-        # ★ クリック
-        menu_frame.click("text=入札・契約情報の検索")
+        # 検索クリック
+        right.click("input[name='btnSearch']")
 
-        time.sleep(3)
+        page.wait_for_timeout(3000)
 
-        print("=== 遷移後フレーム ===")
-        for f in page.frames:
-            print(f.url)
+        right = page.frame(name="frmRIGHT")
+
+        # =========================
+        # ★ここが本題（データ取得）
+        # =========================
+
+        rows = right.query_selector_all("#tBody tr")
+
+        print(f"件数: {len(rows)}")
+
+        for row in rows:
+            cols = row.query_selector_all("td")
+
+            if len(cols) < 5:
+                continue
+
+            number = cols[0].inner_text().strip()
+            category = cols[1].inner_text().strip()
+            title = cols[2].inner_text().strip()
+            method = cols[3].inner_text().strip()
+            date = cols[4].inner_text().strip()
+
+            print("-----")
+            print("番号:", number)
+            print("業種:", category)
+            print("工事名:", title)
+            print("方法:", method)
+            print("日付:", date)
 
         browser.close()
 
