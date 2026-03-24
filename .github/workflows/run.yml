@@ -21,7 +21,18 @@ jobs:
       - name: ライブラリインストール
         run: |
           pip install -r requirements.txt
-          playwright install
+          # ブラウザ本体と、実行に必要なシステム依存ライブラリを両方入れる
+          playwright install chromium --with-deps
 
       - name: 実行
         run: python main.py
+
+      # エラー原因を特定するためにスクリーンショットとHTMLを保存する設定
+      - name: デバッグ用ファイルの保存
+        if: always() # 実行に失敗しても必ず実行する
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-results
+          path: |
+            debug_error.png
+            debug_page.html
