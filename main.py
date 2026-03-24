@@ -16,7 +16,8 @@ def main():
             menu_f.evaluate("jsLink(1,1);")
             time.sleep(10)
 
-            print("2. 検索ボタン(btnSearch)を特定してクリック...")
+            print("2. 検索ボタン(btnSearch)をクリック...")
+            # ターゲットフレームを特定
             target_f = None
             for f in page.frames:
                 if f.locator('input[name="btnSearch"]').count() > 0:
@@ -24,42 +25,47 @@ def main():
                     break
             
             if target_f:
-                print(f"ターゲットフレーム '{target_f.name}' で検索を実行します。")
+                # クリック実行（ここで古いフレームが消え始める）
                 target_f.locator('input[name="btnSearch"]').click()
-            else:
-                print("!! ボタンが見つかりません。")
-
-            print("3. 結果表示を待ちます（15秒）...")
+                print("クリック完了。画面の再構築を待ちます...")
+            
+            # --- ここで「待ち」に徹する ---
+            print("3. 新しいフレームが安定するまで15秒待機...")
             time.sleep(15)
 
-            print(f"\n=== [検索結果画面スキャン] 現在のURL: {page.url} ===")
+            print(f"\n=== [最終調査] 現在のURL: {page.url} ===")
             
-            # 全フレームを総当たりで調査
-            frames = page.frames
-            print(f"検知されたフレーム数: {len(frames)}")
+            # 現在「生きている」フレームだけを対象にスキャン
+            active_frames = page.frames
+            print(f"検知されたアクティブなフレーム数: {len(active_frames)}")
 
-            for i, f in enumerate(frames):
+            for i, f in enumerate(active_frames):
+                # detachedを避けるため、各フレームごとにtry-exceptを入れる
                 try:
-                    # フレーム内のテキスト、テーブル構造、ボタンを調査
-                    info = f.evaluate('''() => {
+                    # すでに破棄されたフレームはスキップ
+                    if f.is_detached(): continue
+                    
+                    # フレーム内の情報を抽出
+                    res = f.evaluate('''() => {
                         return {
                             name: window.name,
                             url: window.location.href,
                             text: document.body.innerText.substring(0, 200).replace(/\\n/g, ' '),
-                            hasTable: document.querySelectorAll('table').length,
-                            hasTbody: !!document.querySelector('#tBody'),
-                            buttons: Array.from(document.querySelectorAll('input, a')).map(el => el.value || el.innerText).filter(t => t)
+                            tableCount: document.querySelectorAll('table').length,
+                            tBodyExists: !!document.querySelector('#tBody'),
+                            links: Array.from(document.querySelectorAll('a')).map(a => a.innerText.trim()).filter(t => t)
                         }
                     }''')
                     
-                    print(f"\n[Frame {i}] Name: '{info['name']}' | URL: {info['url']}")
-                    print(f"  内容冒頭: {info['text']}...")
-                    print(f"  テーブル数: {info['hasTable']} | #tBodyの有無: {info['hasTbody']}")
-                    if info['buttons']:
-                        print(f"  ボタン/リンク: {info['buttons'][:10]}")
+                    print(f"\n[Frame {i}] Name: '{res['name']}'")
+                    print(f"  URL: {res['url']}")
+                    print(f"  内容: {res['text']}...")
+                    print(f"  テーブル数: {res['tableCount']} | #tBody: {res['tBodyExists']}")
+                    if res['links']: print(f"  リンク: {res['links'][:10]}")
 
-                except Exception as e:
-                    print(f"  [Frame {i}] 解析不可: {e}")
+                except Exception:
+                    # 解析中に消えたフレームは無視して次へ
+                    continue
 
             # 証拠保存
             page.screenshot(path="debug_after_click.png", full_page=True)
