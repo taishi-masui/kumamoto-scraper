@@ -5,38 +5,25 @@ def main():
         browser = p.chromium.launch()
         page = browser.new_page()
 
-        # ★LEFTを直接開く
-        page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/PJC001Servlet?Mode=Left")
+        # ① トップページ
+        page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/MainServlet?Error=&Message=")
 
-        page.wait_for_load_state("networkidle")
+        # ② frmRIGHT → frmTOP に入る
+        frame = page.frame_locator("frame[name='frmRIGHT']") \
+                    .frame_locator("frame[name='frmTOP']")
 
-        # ★jsLinkを直接実行（これが核心）
-        page.evaluate("jsLink(1,1)")
+        # ③ 検索ボタン押す
+        frame.locator("input[name='btnSearch']").click()
 
-        page.wait_for_timeout(3000)
+        # ④ 結果待つ
+        frame.locator("#tBody tr").first.wait_for()
 
-        # ★検索ボタン待ち
-        page.wait_for_selector("input[name='btnSearch']")
-
-        page.click("input[name='btnSearch']")
-
-        page.wait_for_timeout(3000)
-
-        # ★データ取得
-        rows = page.query_selector_all("#tBody tr")
-
-        print(f"件数: {len(rows)}")
+        # ⑤ データ取得
+        rows = frame.locator("#tBody tr").all()
 
         for row in rows:
-            cols = row.query_selector_all("td")
-
-            if len(cols) < 5:
-                continue
-
-            print("-----")
-            print("番号:", cols[0].inner_text().strip())
-            print("工事名:", cols[2].inner_text().strip())
-            print("日付:", cols[4].inner_text().strip())
+            cols = row.locator("td").all_inner_texts()
+            print(cols)
 
         browser.close()
 
