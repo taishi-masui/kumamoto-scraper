@@ -20,23 +20,25 @@ def main():
             time.sleep(2)
 
             print("3. 自治体（熊本県）を選択...")
+            # ロゴ部分をクリック
             page.locator(".ATYPE").first.click()
-            page.wait_for_load_state("networkidle")
-            time.sleep(3)
-
-            print("4. 右フレーム内の検索メニューをクリック...")
-            # 右フレーム(frmRIGHT)をターゲットにする
-            frm_right = page.frame_locator('frame[name="frmRIGHT"]')
             
-            # 中央リストの「入札・契約情報の検索」をクリック
-            # aタグ（リンク）であり、かつそのテキストを持つものを指定
-            search_menu = frm_right.locator('a:has-text("入札・契約情報の検索")').first
+            # ★ここが重要：クリック後の画面変化をしっかり待つ
+            time.sleep(5)
+
+            print("4. 検索メニューをクリック（ページ全体から検索）...")
+            # フレームを指定せず、ページ全体から「入札・契約情報の検索」というリンクを探す
+            # 2箇所あるうち、最初に見つかる方（通常はメイン画面側）をクリック
+            search_menu = page.get_by_text("入札・契約情報の検索").first
             search_menu.wait_for(state="visible", timeout=20000)
             search_menu.click()
             
             print("5. 検索ボタンをクリック...")
-            time.sleep(3)
+            time.sleep(5)
+            # ここからは構造が安定するのでフレーム指定を復活
+            frm_right = page.frame_locator('frame[name="frmRIGHT"]')
             frm_top = frm_right.frame_locator('frame[name="frmTOP"]')
+            
             btn_search = frm_top.locator('input[name="btnSearch"]')
             btn_search.wait_for(state="visible", timeout=20000)
             btn_search.click()
@@ -44,13 +46,15 @@ def main():
             print("6. データを取得中...")
             time.sleep(5)
             frm_bottom = frm_right.frame_locator('frame[name="frmBOTTOM"]')
-            result_rows = frm_bottom.locator("#tBody tr")
             
-            result_rows.first.wait_for(state="attached", timeout=20000)
-            rows = result_rows.all()
+            # #tBody tr が存在するか確認
+            result_rows = frm_bottom.locator("#tBody tr")
+            result_rows.first.wait_for(state="attached", timeout=30000)
             
             scraped_data = []
+            rows = result_rows.all()
             print(f"\n===== 取得結果：{len(rows)}件 =====")
+            
             for i, row in enumerate(rows):
                 cols = row.locator("td").all_text_contents()
                 clean_cols = [c.strip().replace('\n', ' ').replace('\t', ' ') for c in cols if c.strip()]
@@ -58,11 +62,9 @@ def main():
                     scraped_data.append(clean_cols)
                     print(f"Row {i+1}: {clean_cols}")
 
-            # CSVに保存
             if scraped_data:
                 with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
                     writer = csv.writer(f)
-                    # ヘッダーが必要な場合はここに追加
                     writer.writerows(scraped_data)
                 print("\nresult.csv に保存しました。")
 
