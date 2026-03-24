@@ -15,38 +15,46 @@ def main():
             print("1. URL1（ポータル）にアクセス...")
             page.goto("http://ebid-portal.kumamoto-idc.pref.kumamoto.jp/", wait_until="networkidle")
             
-            print("2. 「入札情報公開サービス」の文字をクリックしてボタンを表示させる...")
-            # テキストを正確に狙います（もしリンクなら .click()）
-            page.get_by_text("入札情報公開サービス").first.click()
+            # --- ステップ2：メニューがあるフレームを指定 ---
+            print("2. メニューフレーム(rtop)から「入札情報公開」を探してクリック...")
+            # rtopフレームを特定
+            rtop_frame = page.frame_locator('frame[name="rtop"]')
             
-            # ボタン画像が表示されるまで待機
-            print("3. 画像ボタンが表示されるのを待っています...")
-            img_button = page.locator('img[src*="botan02.gif"]').first
+            # フレーム内の「入札情報公開」をクリック
+            # ※「入札情報公開サービス」ではなく、画像上の表記「入札情報公開」を狙います
+            menu_item = rtop_frame.get_by_text("入札情報公開").first
+            menu_item.wait_for(state="visible", timeout=15000)
+            menu_item.click()
+            
+            # --- ステップ3：メインフレーム(rbottom)に画像ボタンが出るのを待つ ---
+            print("3. メインフレーム(rbottom)の画像ボタンを待機...")
+            rbottom_frame = page.frame_locator('frame[name="rbottom"]')
+            img_button = rbottom_frame.locator('img[src*="botan02.gif"]').first
+            
+            # ボタンが表示されるまでしっかり待つ
             img_button.wait_for(state="visible", timeout=15000)
 
             print("4. 画像ボタンをクリックしてポップアップ(URL2)を起動...")
-            # ここで page.expect_popup() を使用
+            # popupを待機する対象は page です
             with page.expect_popup() as popup_info:
                 img_button.click()
             
-            # 操作対象を新しく開いたウィンドウに切り替え
+            # 以降、操作対象は新しく開いたウィンドウ(ppi_page)
             ppi_page = popup_info.value
             ppi_page.wait_for_load_state("networkidle")
             print("5. 本番ウィンドウ(URL2)を捕捉しました。")
 
-            # 6. 自治体（熊本県）を選択
+            # --- ステップ6以降：以前の成功ルート ---
             print("6. 熊本県を選択...")
             ppi_page.locator(".ATYPE").first.click()
             ppi_page.wait_for_load_state("networkidle")
             time.sleep(3)
 
-            # 7. 「入札・契約情報の検索」をクリック
             print("7. 入札・契約情報の検索メニューへ...")
             search_menu = ppi_page.get_by_text("入札・契約情報の検索").first
             search_menu.wait_for(state="visible", timeout=20000)
             search_menu.click()
             
-            # 8. 検索実行
             print("8. 検索実行ボタンをクリック...")
             time.sleep(5)
             frm_right = ppi_page.frame_locator('frame[name="frmRIGHT"]')
@@ -56,7 +64,6 @@ def main():
             btn_search.wait_for(state="visible", timeout=20000)
             btn_search.click()
             
-            # 9. データ取得
             print("9. データを取得中...")
             time.sleep(5)
             frm_bottom = frm_right.frame_locator('frame[name="frmBOTTOM"]')
@@ -82,6 +89,7 @@ def main():
             print(f"エラー詳細: {e}")
             target = locals().get('ppi_page', page)
             target.screenshot(path="debug_error.png", full_page=True)
+            # 現在の全ページの構造をデバッグ出力
             with open("debug_page.html", "w", encoding="utf-8") as f:
                 f.write(target.content())
         finally:
