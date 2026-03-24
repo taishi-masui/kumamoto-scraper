@@ -8,47 +8,61 @@ def main():
         page = context.new_page()
 
         try:
-            print("--- Step 1: 玄関口へアクセス ---")
-            page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/jsp/index.jsp", wait_until="networkidle")
+            print("--- Step 1: ポータルから正規ルートで進入 ---")
+            page.goto("http://ebid-portal.kumamoto-idc.pref.kumamoto.jp/", wait_until="networkidle")
             
-            # 時間差で3回スキャン（動的読み込みのチェック）
-            for wait_sec in [2, 5, 10]:
-                print(f"\n--- スキャン（アクセスから {wait_sec} 秒後） ---")
-                time.sleep(wait_sec)
-                
-                frames = page.frames
-                print(f"検知フレーム数: {len(frames)}")
-                
-                for i, f in enumerate(frames):
-                    try:
-                        print(f"  [Frame {i}] Name: '{f.name}' / URL: {f.url}")
-                        
-                        # 1. フレーム内の全ボタン/リンクのテキストを抽出
-                        elements = f.evaluate('''() => {
-                            const tags = Array.from(document.querySelectorAll('a, button, area, img, input'));
-                            return tags.map(t => ({
-                                tag: t.tagName,
-                                text: t.innerText || t.alt || t.value || '',
-                                id: t.id,
-                                src: t.src || ''
-                            })).filter(e => e.text.length > 0 || e.src.length > 0);
-                        }''')
-                        
-                        print(f"    要素数: {len(elements)}")
-                        for el in elements[:10]: # 最初の10個を表示
-                            print(f"      - {el['tag']}: '{el['text']}' (ID:{el['id']})")
-                            
-                    except Exception as e:
-                        print(f"    Frame {i} の解析に失敗: {e}")
+            # メニュークリック
+            rtop = page.frame_locator('frame[name="rtop"]')
+            rtop.locator('a[href="koukaisystem.html"]').click()
+            
+            # 画像ボタン待機
+            rbottom = page.frame_locator('frame[name="rbottom"]')
+            btn = rbottom.locator('img[src*="botan02.gif"]').first
+            btn.wait_for(state="visible")
 
-            # 最終的なHTMLを保存して、人間が目視で確認できるようにする
-            with open("structure_debug.html", "w", encoding="utf-8") as f:
-                f.write(page.content())
-            page.screenshot(path="structure_debug.png", full_page=True)
-            print("\n解析完了。HTMLとスクリーンショットを保存しました。")
+            # --- 重要：親が閉じるのを防ぎつつ、ポップアップを待つ ---
+            print("--- Step 2: ポップアップ発生の監視 ---")
+            # 親ウィンドウの自己終了命令を無効化
+            page.evaluate("window.close = function() { console.log('Prevented window.close()'); };")
+
+            with page.expect_popup() as popup_info:
+                btn.click()
+            
+            ppi_page = popup_info.value
+            # ロードが完了するまでじっくり待つ（ここで焦ると Target closed になる）
+            print("ポップアップを検知。安定するまで5秒待機します...")
+            time.sleep(5) 
+            ppi_page.wait_for_load_state("networkidle")
+
+            print(f"\n--- Step 3: 捕捉したページの真の構造 ---")
+            print(f"URL: {ppi_page.url}")
+            
+            # フレーム構造の走査
+            frames = ppi_page.frames
+            print(f"検知フレーム数: {len(frames)}")
+            for i, f in enumerate(frames):
+                try:
+                    # フレーム内のテキスト、リンク、ボタンを全て書き出す
+                    data = f.evaluate('''() => {
+                        return {
+                            text: document.body.innerText.substring(0, 100),
+                            links: Array.from(document.querySelectorAll('a, area')).map(a => a.innerText || a.alt || 'no-text'),
+                            images: Array.from(document.querySelectorAll('img')).map(img => img.alt || img.src)
+                        }
+                    }''')
+                    print(f"  [Frame {i}] Name: '{f.name}'")
+                    print(f"    冒頭テキスト: {data['text']}...")
+                    print(f"    見つかったリンク/画像: {data['links'][:5]} / {data['images'][:5]}")
+                except Exception as fe:
+                    print(f"  [Frame {i}] 解析エラー: {fe}")
+
+            # 証拠保存
+            ppi_page.screenshot(path="popup_captured.png", full_page=True)
+            with open("popup_captured.html", "w", encoding="utf-8") as f:
+                f.write(ppi_page.content())
 
         except Exception as e:
-            print(f"エラー: {e}")
+            print(f"\n実行エラー: {e}")
         finally:
             browser.close()
 
