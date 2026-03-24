@@ -3,70 +3,69 @@ import time
 
 def main():
     with sync_playwright() as p:
-        # headlessでも動きやすいよう設定
         browser = p.chromium.launch(headless=True)
+        # コンテキスト作成時にポップアップ関連の制限を緩める設定
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={'width': 1280, 'height': 800}
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            locale="ja-JP",
+            ignore_https_errors=True # http/https混在対策
         )
         page = context.new_page()
 
         try:
-            print("本番URLへ直接アクセスを試みます...")
-            # window.open の遷移先である TopServlet へ直接アクセスすることで
-            # ポップアップ地獄をバイパスできる可能性があります
-            target_url = "https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/TopServlet"
+            print("1. セッション確立のため、ベースURLにアクセスします...")
+            # まずはサイトの入り口にアクセスしてCookieを取得
+            page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/MainServlet?Error=&Message=", 
+                      wait_until="networkidle", timeout=60000)
             
-            # もし直接がダメな場合のために、一応ポップアップ待機も仕込む
-            with context.expect_popup(timeout=60000) as popup_info:
-                page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/MainServlet?Error=&Message=", wait_until="load")
+            print("2. ポップアップをバイパスし、直接本番フレームページへ遷移します...")
+            # 本来 window.open で開かれるURLを、現在のタブで直接開く
+            page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/TopServlet", 
+                      wait_until="networkidle", timeout=60000)
             
-            ppi_page = popup_info.value
-            ppi_page.wait_for_load_state("networkidle")
-            print("本番ページを捕捉しました。")
-
-            # 画面が安定するまで少し待機
+            # ページが安定するまでしっかり待機
             time.sleep(5)
 
-            # --- ここからがフレーム操作 ---
-            # 構造: frmRIGHT (メイン) > frmTOP (検索ボタンがある上部)
-            print("検索フレームを探しています...")
+            print("3. フレーム構造を解析し、検索ボタンを特定します...")
+            # このサイトは frmRIGHT > frmTOP という二重フレーム構造です
+            frm_right = page.frame_locator('frame[name="frmRIGHT"]')
+            frm_top = frm_right.frame_locator('frame[name="frmTOP"]')
             
-            # frame_locator を使い、まず frmRIGHT を特定
-            frm_right = ppi_page.frame_locator('frame[name="frmRIGHT"]')
+            # 検索ボタン(btnSearch)を探す
+            btn_search = frm_top.locator('input[name="btnSearch"]')
             
-            # その中の frmTOP を特定し、検索ボタン(btnSearch)をクリック
-            # 念のため、要素が見えるまでしっかり待つ
-            btn_search = frm_right.frame_locator('frame[name="frmTOP"]').locator('input[name="btnSearch"]')
-            
-            print("検索ボタンを待機中...")
-            btn_search.wait_for(state="visible", timeout=30000)
+            # ボタンが表示されるまで最大20秒待つ
+            btn_search.wait_for(state="visible", timeout=20000)
+            print("検索ボタンを発見しました。クリックします。")
             btn_search.click()
-            
-            print("検索実行。結果を待機中...")
-            time.sleep(5) # 反応が遅いので固定待機
 
-            # 結果は frmRIGHT > frmBOTTOM に表示される
+            print("4. 検索結果（下部フレーム）を待機中...")
+            time.sleep(5) # サーバーの応答待ち
+            
+            # 結果は frmRIGHT > frmBOTTOM に表示されます
             frm_bottom = frm_right.frame_locator('frame[name="frmBOTTOM"]')
+            # 結果テーブルの行を特定
+            rows = frm_bottom.locator("#tBody tr")
             
-            # テーブルの行(#tBody tr)が出るまで待機
-            result_rows = frm_bottom.locator("#tBody tr")
-            result_rows.first.wait_for(state="attached", timeout=30000)
+            # 最初の行がDOMに出現するまで待機
+            rows.first.wait_for(state="attached", timeout=30000)
             
-            all_rows = result_rows.all()
-            print(f"成功！ {len(all_rows)} 件のデータが見つかりました。")
+            all_rows = rows.all()
+            print(f"成功！ {len(all_rows)} 件のデータを検出しました。")
 
-            for i, row in enumerate(all_rows[:10]): # 最初の10件
-                text = row.inner_text().strip().replace('\n', ' ').replace('\t', ' ')
-                print(f"Row {i}: {text}")
+            for i, row in enumerate(all_rows[:10]):
+                # セルごとのテキストを取得して整形
+                cols = row.locator("td").all_text_contents()
+                clean_cols = [c.strip().replace('\n', ' ') for c in cols if c.strip()]
+                if clean_cols:
+                    print(f"Row {i}: {clean_cols}")
 
         except Exception as e:
             print(f"エラーが発生しました: {e}")
-            # エラー時に「どのページ」を撮るべきか判断
-            target = locals().get('ppi_page', page)
-            target.screenshot(path="debug_error.png", full_page=True)
+            # エラー時点の画面とHTMLを保存（これがあれば原因が100%わかります）
+            page.screenshot(path="debug_error.png", full_page=True)
             with open("debug_page.html", "w", encoding="utf-8") as f:
-                f.write(target.content())
+                f.write(page.content())
         finally:
             browser.close()
 
