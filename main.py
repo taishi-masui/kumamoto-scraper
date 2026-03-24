@@ -1,5 +1,6 @@
 from playwright.sync_api import sync_playwright
 import time
+import csv
 
 def main():
     with sync_playwright() as p:
@@ -8,62 +9,59 @@ def main():
         page = context.new_page()
 
         try:
-            print("1. ターゲット画面(MainServlet)へ到達...")
+            print("1. ターゲット画面へアクセス...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
 
-            print("2. jsLink(1,1) を実行し、画面遷移を開始...")
-            # 安定していた frmTOP で実行
-            target_frame = page.frame(name="frmTOP")
-            if target_frame:
-                target_frame.evaluate("jsLink(1,1);")
-            else:
-                page.evaluate("jsLink(1,1);")
+            print("2. 検索条件画面の呼び出し (jsLink(1,1))...")
+            # メニューがあるフレームを特定して実行
+            menu_frame = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
+            menu_frame.evaluate("jsLink(1,1);")
 
-            # フレームが壊れて作り直されるのをじっくり待つ
-            print("3. 画面の再構築を待ちます（15秒）...")
-            time.sleep(15) 
+            print("3. 検索画面（フレーム群）の読み込みを待機...")
+            # フレームが多重に読み込まれるため、少し長めに待ちます
+            time.sleep(10)
 
-            print(f"\n=== [遷移完了後の全フレーム調査] 現在のURL: {page.url} ===")
-            
-            # 再構築された後の全フレームをリストアップ
-            current_frames = page.frames
-            print(f"検知された新フレーム数: {len(current_frames)}")
-
-            for i, f in enumerate(current_frames):
+            print("4. 全フレームから検索ボタン(btnSearch)を探してクリック...")
+            search_clicked = False
+            for f in page.frames:
                 try:
-                    # フレームが生きているか確認しながら情報を抜く
-                    f_name = f.name
-                    f_url = f.url
+                    btn = f.locator('input[name="btnSearch"]')
+                    if btn.count() > 0:
+                        print(f"★フレーム '{f.name}' 内にボタンを発見。クリックします。")
+                        btn.click()
+                        search_clicked = True
+                        break
+                except:
+                    continue
+            
+            if not search_clicked:
+                print("!! ボタンが見つかりませんでした。JSで直接実行を試みます。")
+                page.evaluate("for(let f of window.frames) { if(f.jsSearch) f.jsSearch(); }")
+
+            print("5. 検索結果の表示待ち...")
+            time.sleep(8)
+
+            # 結果は通常 frmRIGHT > frmBOTTOM のような構造に出るため全スキャン
+            print("6. データ抽出開始...")
+            for f in page.frames:
+                rows = f.locator("#tBody tr").all()
+                if rows:
+                    print(f"★フレーム '{f.name}' で {len(rows)} 件のデータを捕捉！")
+                    data = [r.locator("td").all_text_contents() for r in rows]
                     
-                    # このフレームの中に「btnSearch」や「検索」があるか徹底調査
-                    elements = f.evaluate('''() => {
-                        return Array.from(document.querySelectorAll('input, a, button')).map(el => ({
-                            tag: el.tagName,
-                            text: el.innerText || el.value || el.alt || '',
-                            name: el.name || '',
-                            type: el.type || ''
-                        })).filter(e => e.text.includes('検索') || e.name.includes('Search'));
-                    }''')
-
-                    print(f"\n[Frame {i}] Name: '{f_name}' | URL: {f_url}")
-                    if elements:
-                        for idx, el in enumerate(elements):
-                            print(f"  ★発見 [{idx}] {el['tag']}({el['type']}) | Text: '{el['text']}' | Name: '{el['name']}'")
-                    else:
-                        print("  (検索ボタンに該当する要素は見つかりませんでした)")
-
-                except Exception as e:
-                    print(f"  [Frame {i}] 解析エラー（遷移中の可能性）: {e}")
-
-            # 最終的な画面を保存
-            page.screenshot(path="debug_after_click.png", full_page=True)
-            with open("debug_page.html", "w", encoding="utf-8") as file:
-                file.write(page.content())
-            print("\n調査完了。")
+                    with open('result.csv', 'w', encoding='utf-8-sig', newline='') as csvfile:
+                        writer = csv.writer(csvfile)
+                        for row in data:
+                            # 空白や改行を掃除
+                            clean_row = [c.strip().replace('\n', ' ') for c in row]
+                            writer.writerow(clean_row)
+                    print("CSVへの保存が完了しました。")
+                    break
 
         except Exception as e:
-            print("実行エラー: " + str(e))
+            print(f"エラー発生: {e}")
+            page.screenshot(path="debug_error.png")
         finally:
             browser.close()
 
