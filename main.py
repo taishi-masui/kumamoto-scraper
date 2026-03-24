@@ -4,74 +4,67 @@ import time
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        # 追跡しやすくするため、あえて context を分けて検証
         context = browser.new_context(user_agent="Mozilla/5.0...", locale="ja-JP")
         page = context.new_page()
 
         try:
-            print("--- Step 1: ターゲットボタンまでの到達 ---")
+            print("--- Step 1: 準備 ---")
             page.goto("http://ebid-portal.kumamoto-idc.pref.kumamoto.jp/", wait_until="networkidle")
             page.frame_locator('frame[name="rtop"]').locator('a[href="koukaisystem.html"]').click()
-            
             rbottom = page.frame_locator('frame[name="rbottom"]')
-            btn = rbottom.locator('img[src*="botan02.gif"]').first
-            btn.wait_for(state="visible")
-            print("ボタンを確認しました。検証を開始します。")
+            btn_container = rbottom.locator('a[href*="PPIAccepter"]').first
+            btn_container.wait_for(state="visible")
 
-            # --- 検証パターン開始 ---
-            print("\n--- Pattern A: expect_popup (標準的な待ち受け) ---")
-            try:
-                with page.expect_popup(timeout=10000) as popup_info:
-                    btn.click()
-                print("Pattern A 成功: ウィンドウを捕捉しました。")
-                test_page = popup_info.value
-            except Exception as e:
-                print(f"Pattern A 失敗: {e}")
+            # --- 調査A: リンク先のURLを直接ぶっこ抜く ---
+            direct_url = btn_container.get_attribute("href")
+            print(f"\n[調査A] 取得された直接URL: {direct_url}")
 
-            print("\n--- Pattern B: context.on('page') (イベントリスナー方式) ---")
-            # 新しいページが作成されたらリストに追加する仕組み
-            pages = []
-            context.on("page", lambda p: pages.append(p))
-            btn.click() # 再度クリック（あるいはAが失敗していた場合用）
-            time.sleep(5)
-            if len(pages) > 1: # 元のpage以外に増えているか
-                print(f"Pattern B 成功: {len(pages)-1} 個の新しいウィンドウを検知。")
-                test_page = pages[-1]
-            else:
-                print("Pattern B 失敗: 新しいページが検知されませんでした。")
-
-            print("\n--- Pattern C: browser_context.pages (強制リスト取得方式) ---")
-            # 現在ブラウザが開いている全タブを強制的にリストアップ
-            all_pages = context.pages
-            print(f"現在開いている全タブ数: {len(all_pages)}")
-            for i, p_in_list in enumerate(all_pages):
-                print(f"  Tab[{i}] URL: {p_in_list.url[:50]}...")
+            # --- 調査B: window.close() を無効化してクリック ---
+            print("\n[調査B] window.closeを無効化して生存テスト開始...")
+            page.evaluate("window.close = function() { console.log('close prevented'); };")
             
-            # --- 最終検証：生き残ったウィンドウの構造解析 ---
-            # ここで ppi_page (URL2) が生きていれば、その中身を徹底調査
-            active_pages = [p for p in context.pages if "PPIAccepter" in p.url]
-            if active_pages:
-                target_page = active_pages[0]
-                target_page.wait_for_load_state("networkidle")
-                print(f"\n★ 捕捉完了。URL: {target_page.url}")
-                
-                # ここで「熊本県」などの自治体選択リンクの正体を暴く
-                print("自治体選択リンク（ATYPE）の情報を抽出します...")
-                elements = target_page.evaluate('''() => {
-                    return Array.from(document.querySelectorAll('a, area, img')).map(el => ({
-                        tag: el.tagName,
-                        text: el.innerText || el.alt,
-                        href: el.href,
-                        onclick: el.getAttribute('onclick')
-                    })).filter(e => e.href || e.onclick);
-                }''')
-                for el in elements[:15]:
-                    print(f"  [{el['tag']}] Text: {el['text']} / OnClick: {el['onclick']}")
+            with page.expect_popup(timeout=10000) as popup_info:
+                btn_container.click()
+            
+            ppi_page = popup_info.value
+            # ここで即座にURLとタイトルを記録
+            print(f"捕捉直後の情報: URL={ppi_page.url} Title={ppi_page.title()}")
+            
+            # --- 調査C: 生存確認と構造の吸い出し ---
+            print("\n[調査C] 内部構造の走査...")
+            time.sleep(5) # 5秒耐えられるか？
+            
+            if ppi_page.is_closed():
+                print("!! 5秒待機中に閉じられました。直接アクセス案(A)に切り替えます。")
+                # 案Aの実行
+                new_page = context.new_page()
+                new_page.goto(direct_url, wait_until="networkidle")
+                print(f"直接アクセス成功。現在のURL: {new_page.url}")
+                target_page = new_page
             else:
-                print("\n!! どのパターンでも本番画面を維持できませんでした。")
+                print("成功！ウィンドウは生存しています。")
+                target_page = ppi_page
+
+            # 生き残ったページで「自治体選択」のパーツを徹底調査
+            print("\n--- 最終ターゲット：自治体選択要素の抽出 ---")
+            elements = target_page.evaluate('''() => {
+                return Array.from(document.querySelectorAll('a, img, area')).map(el => ({
+                    tag: el.tagName,
+                    alt: el.alt || '',
+                    src: el.src || '',
+                    onclick: el.getAttribute('onclick') || ''
+                })).filter(e => e.onclick || e.alt.includes('熊本'));
+            }''')
+            
+            for i, el in enumerate(elements):
+                print(f"  Element[{i}]: Tag={el['tag']}, Alt='{el['alt']}', OnClick='{el['onclick']}'")
 
         except Exception as e:
-            print(f"実行エラー: {e}")
+            print(f"\nエラー発生: {e}")
+            # どんな状態でもスクリーンショットを撮る
+            page.screenshot(path="debug_final_parent.png")
+            if 'ppi_page' in locals() and not ppi_page.is_closed():
+                ppi_page.screenshot(path="debug_final_child.png")
         finally:
             browser.close()
 
