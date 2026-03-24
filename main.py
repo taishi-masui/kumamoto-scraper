@@ -10,52 +10,35 @@ def main():
         try:
             print("1. ターゲット画面(MainServlet)へ到達...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
-            time.sleep(10) # 完全にフレームが読み込まれるのを待つ
+            time.sleep(10)
 
-            # 調査対象のフレームリスト
-            target_frames = ["frmLEFT", "frmRIGHT"]
-
-            for frame_name in target_frames:
-                print(f"\n--- フレーム [{frame_name}] の内部調査 ---")
-                frame = page.frame_locator(f'frame[name="{frame_name}"]')
-                
-                # フレーム内の全要素（a, img, area, input）の属性を抽出
-                # バックスラッシュを避けた安全な抽出ロジック
-                elements_data = frame.evaluate('''() => {
-                    const tags = Array.from(document.querySelectorAll('a, img, area, input, span'));
-                    return tags.map(el => {
+            print("\n=== [ターゲット要素の徹底解析] ===")
+            # 全フレームをループ。特に「frmRIGHT」に注目
+            for f in page.frames:
+                # 検索という文字を含む要素を抽出
+                elements = f.evaluate('''() => {
+                    return Array.from(document.querySelectorAll('a, img, input, span, div')).map(el => {
                         return {
                             tag: el.tagName,
-                            text: el.innerText || el.alt || el.value || '',
+                            text: el.innerText.trim() || el.alt || '',
                             onclick: el.getAttribute('onclick') || '',
-                            href: el.getAttribute('href') || '',
-                            id: el.id || '',
-                            className: el.className || ''
+                            href: el.getAttribute('href') || ''
                         };
-                    });
+                    }).filter(e => e.text.includes('入札・契約情報の検索'));
                 }''')
 
-                print(f"検出要素数: {len(elements_data)}")
+                if elements:
+                    print(f"\n[Frame名: {f.name}] にターゲットを発見！")
+                    for el in elements:
+                        print(f"  - Tag: {el['tag']}")
+                        print(f"    Text: {el['text']}")
+                        print(f"    OnClick: {el['onclick']}")
+                        print(f"    Href: {el['href']}")
                 
-                # 「検索」という文字を含む要素を特定
-                found_count = 0
-                for el in elements_data:
-                    if "検索" in el['text'] or "PBI001" in el['href'] or "js" in el['onclick']:
-                        print(f"  [発見] Tag: {el['tag']} | Text: {el['text']}")
-                        print(f"         OnClick: {el['onclick']}")
-                        print(f"         Href: {el['href']}")
-                        print(f"         ID: {el['id']} | Class: {el['className']}")
-                        print("  " + "-"*30)
-                        found_count += 1
-                
-                if found_count == 0:
-                    print("  !! このフレーム内には「検索」に関連する直接の要素は見つかりませんでした。")
-
-            # 証拠として現在のHTMLソースとスクリーンショットを保存
-            # Actionsの設定に合わせてファイル名を固定
+            # エビデンス保存
             page.screenshot(path="debug_after_click.png", full_page=True)
-            with open("debug_page.html", "w", encoding="utf-8") as f:
-                f.write(page.content())
+            with open("debug_page.html", "w", encoding="utf-8") as file:
+                file.write(page.content())
             print("\n調査完了。")
 
         except Exception as e:
