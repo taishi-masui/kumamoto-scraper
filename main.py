@@ -1,88 +1,73 @@
 from playwright.sync_api import sync_playwright
 import time
-import csv
+
+def dump_frames(page, label):
+    print(f"\n=== {label} : フレーム構造解析 ===")
+    frames = page.frames
+    print(f"検知されたフレーム数: {len(frames)}")
+    for i, f in enumerate(frames):
+        try:
+            name = f.name
+            url = f.url
+            # フレーム内の全リンク（aタグ）のhrefを抽出
+            links = f.evaluate('() => Array.from(document.querySelectorAll("a")).map(a => a.href)')
+            # フレーム内の全ボタン/入力要素のnameを抽出
+            inputs = f.evaluate('() => Array.from(document.querySelectorAll("input, img")).map(el => el.name || el.src)')
+            
+            print(f"  Frame[{i}] Name: '{name}'")
+            print(f"    URL: {url}")
+            if links: print(f"    Links(first 5): {links[:5]}")
+            if inputs: print(f"    Elements(first 5): {inputs[:5]}")
+        except Exception as e:
+            print(f"  Frame[{i}] 解析失敗: {e}")
+    print("=" * 40)
 
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            locale="ja-JP"
-        )
+        context = browser.new_context(user_agent="Mozilla/5.0...", locale="ja-JP")
         page = context.new_page()
-        ppi_page = None
 
         try:
-            print("1. ポータル(URL1)にアクセス...")
+            # 1. URL1 解析
+            print("1. URL1 (ポータル) アクセス直後の解析")
             page.goto("http://ebid-portal.kumamoto-idc.pref.kumamoto.jp/", wait_until="networkidle")
-            
-            print("2. メニュー(rtop)から「入札情報公開」をクリック...")
-            # 教えていただいた href="koukaisystem.html" を直接狙い撃ち
-            page.frame_locator('frame[name="rtop"]').locator('a[href="koukaisystem.html"]').click()
-            
-            print("3. メイン(rbottom)の画像リンクを待機...")
+            dump_frames(page, "URL1 初期状態")
+
+            # 2. メニュークリック後の解析
+            print("\n2. 'koukaisystem.html' へのリンクをクリック...")
+            rtop = page.frame_locator('frame[name="rtop"]')
+            target = rtop.locator('a[href="koukaisystem.html"]')
+            if target.count() > 0:
+                target.click()
+                time.sleep(5)
+                dump_frames(page, "URL1 メニュークリック後")
+            else:
+                print("!! rtop内に koukaisystem.html が見つかりません")
+
+            # 3. ポップアップ発生の解析
+            print("\n3. ポップアップを試行...")
             rbottom = page.frame_locator('frame[name="rbottom"]')
-            # 教えていただいた本番システムへのリンクを直接指定
-            target_link = rbottom.locator('a[href*="PPIAccepter/jsp"]').first
-            target_link.wait_for(state="visible", timeout=15000)
-
-            print("4. ポップアップ（本番システム）を起動...")
-            with page.expect_popup() as popup_info:
-                target_link.click()
+            popup_trigger = rbottom.locator('a[href*="PPIAccepter"]').first
             
-            ppi_page = popup_info.value
-            ppi_page.wait_for_load_state("networkidle")
-            print("5. 本番システム捕捉成功！")
-
-            # --- ここから本番システム(URL2)内の操作 ---
-            print("6. 熊本県を選択...")
-            ppi_page.locator(".ATYPE").first.click()
-            ppi_page.wait_for_load_state("networkidle")
-            time.sleep(3)
-
-            print("7. 検索メニューへ遷移...")
-            # ここもフレーム構造(frmRIGHT)なので指定が必要
-            frm_right = ppi_page.frame_locator('frame[name="frmRIGHT"]')
-            frm_right.get_by_text("入札・契約情報の検索").first.click()
-            time.sleep(3)
-            
-            print("8. 検索実行（全件表示）...")
-            # 検索ボタンは frmRIGHT 内の frmTOP に配置されている
-            frm_top = frm_right.frame_locator('frame[name="frmTOP"]')
-            frm_top.locator('input[name="btnSearch"]').click()
-            
-            print("9. データを解析中...")
-            time.sleep(5)
-            # 結果テーブルは frmRIGHT 内の frmBOTTOM に配置されている
-            frm_bottom = frm_right.frame_locator('frame[name="frmBOTTOM"]')
-            rows_locator = frm_bottom.locator("#tBody tr")
-            rows_locator.first.wait_for(state="attached", timeout=30000)
-            
-            rows = rows_locator.all()
-            scraped_data = []
-            print(f"\n--- 取得結果（1ページ目：{len(rows)}件） ---")
-            for i, row in enumerate(rows):
-                cols = row.locator("td").all_text_contents()
-                clean_cols = [c.strip().replace('\n', ' ').replace('\t', ' ') for c in cols if c.strip()]
-                if clean_cols:
-                    scraped_data.append(clean_cols)
-                    print(f"Row {i+1}: {clean_cols}")
-
-            # CSVとして書き出し
-            if scraped_data:
-                with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
-                    writer = csv.writer(f)
-                    writer.writerows(scraped_data)
-                print("\nresult.csv に保存が完了しました。")
+            if popup_trigger.count() > 0:
+                with page.expect_popup() as popup_info:
+                    popup_trigger.click()
+                ppi_page = popup_info.value
+                ppi_page.wait_for_load_state("networkidle")
+                
+                # ここが本番システム(URL2/URL3)の真の姿
+                dump_frames(ppi_page, "URL2 ポップアップ直後")
+                
+                print("\n4. 熊本県（ATYPE）をクリックした後の解析...")
+                ppi_page.locator(".ATYPE").first.click()
+                time.sleep(5)
+                dump_frames(ppi_page, "URL3 自治体選択後")
+            else:
+                print("!! rbottom内にポップアップ用リンクが見つかりません")
 
         except Exception as e:
-            print(f"エラー発生: {e}")
-            # エラー時に開いているウィンドウを特定して撮影
-            target = ppi_page if ppi_page and not ppi_page.is_closed() else page
-            if not target.is_closed():
-                target.screenshot(path="debug_error.png", full_page=True)
-                with open("debug_page.html", "w", encoding="utf-8") as f:
-                    f.write(target.content())
+            print(f"\n!!! 実行エラー: {e}")
         finally:
             browser.close()
 
