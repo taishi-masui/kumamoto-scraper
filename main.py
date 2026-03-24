@@ -5,25 +5,33 @@ def main():
         browser = p.chromium.launch()
         page = browser.new_page()
 
-        # ① トップページ
         page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/MainServlet?Error=&Message=")
 
-        # ② frmRIGHT → frmTOP に入る
-        frame = page.frame_locator("frame[name='frmRIGHT']") \
-                    .frame_locator("frame[name='frmTOP']")
+        # ★ここ超重要：フレームが出るまで待つ
+        page.wait_for_selector("frame[name='frmRIGHT']")
 
-        # ③ 検索ボタン押す
-        frame.locator("input[name='btnSearch']").click()
+        # ★frmRIGHT取得
+        right = page.frame(name="frmRIGHT")
 
-        # ④ 結果待つ
-        frame.locator("#tBody tr").first.wait_for()
+        # ★frmTOPが出るまで待つ
+        page.wait_for_timeout(2000)
 
-        # ⑤ データ取得
-        rows = frame.locator("#tBody tr").all()
+        top = right.child_frames[0]
+
+        # ★検索ボタン待つ
+        top.wait_for_selector("input[name='btnSearch']")
+
+        # ★クリック
+        top.click("input[name='btnSearch']")
+
+        # ★結果待つ
+        top.wait_for_selector("#tBody tr")
+
+        rows = top.query_selector_all("#tBody tr")
 
         for row in rows:
-            cols = row.locator("td").all_inner_texts()
-            print(cols)
+            cols = row.query_selector_all("td")
+            print([c.inner_text() for c in cols])
 
         browser.close()
 
