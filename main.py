@@ -5,9 +5,19 @@ def main():
         browser = p.chromium.launch()
         page = browser.new_page()
 
-        page.goto("https://example.com")
+        # トップページ
+        page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/MainServlet?Error=&Message=")
 
-        print(page.title())
+        # 少し待つ（重要）
+        page.wait_for_timeout(3000)
+
+        # フレーム対応（ここがポイント）
+        frames = page.frames
+
+        print("フレーム数:", len(frames))
+
+        for f in frames:
+            print("Frame URL:", f.url)
 
         browser.close()
 
