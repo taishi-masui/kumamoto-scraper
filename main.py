@@ -1,6 +1,5 @@
 from playwright.sync_api import sync_playwright
 import time
-import csv
 
 def main():
     with sync_playwright() as p:
@@ -9,59 +8,67 @@ def main():
         page = context.new_page()
 
         try:
-            print("1. ターゲット画面へアクセス...")
+            print("1. 検索条件画面へ到達...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
-
-            print("2. 検索条件画面の呼び出し (jsLink(1,1))...")
-            # メニューがあるフレームを特定して実行
-            menu_frame = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
-            menu_frame.evaluate("jsLink(1,1);")
-
-            print("3. 検索画面（フレーム群）の読み込みを待機...")
-            # フレームが多重に読み込まれるため、少し長めに待ちます
+            # メニューから検索画面呼び出し
+            menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
+            menu_f.evaluate("jsLink(1,1);")
             time.sleep(10)
 
-            print("4. 全フレームから検索ボタン(btnSearch)を探してクリック...")
-            search_clicked = False
+            print("2. 検索ボタン(btnSearch)を特定してクリック...")
+            target_f = None
             for f in page.frames:
-                try:
-                    btn = f.locator('input[name="btnSearch"]')
-                    if btn.count() > 0:
-                        print(f"★フレーム '{f.name}' 内にボタンを発見。クリックします。")
-                        btn.click()
-                        search_clicked = True
-                        break
-                except:
-                    continue
-            
-            if not search_clicked:
-                print("!! ボタンが見つかりませんでした。JSで直接実行を試みます。")
-                page.evaluate("for(let f of window.frames) { if(f.jsSearch) f.jsSearch(); }")
-
-            print("5. 検索結果の表示待ち...")
-            time.sleep(8)
-
-            # 結果は通常 frmRIGHT > frmBOTTOM のような構造に出るため全スキャン
-            print("6. データ抽出開始...")
-            for f in page.frames:
-                rows = f.locator("#tBody tr").all()
-                if rows:
-                    print(f"★フレーム '{f.name}' で {len(rows)} 件のデータを捕捉！")
-                    data = [r.locator("td").all_text_contents() for r in rows]
-                    
-                    with open('result.csv', 'w', encoding='utf-8-sig', newline='') as csvfile:
-                        writer = csv.writer(csvfile)
-                        for row in data:
-                            # 空白や改行を掃除
-                            clean_row = [c.strip().replace('\n', ' ') for c in row]
-                            writer.writerow(clean_row)
-                    print("CSVへの保存が完了しました。")
+                if f.locator('input[name="btnSearch"]').count() > 0:
+                    target_f = f
                     break
+            
+            if target_f:
+                print(f"ターゲットフレーム '{target_f.name}' で検索を実行します。")
+                target_f.locator('input[name="btnSearch"]').click()
+            else:
+                print("!! ボタンが見つかりません。")
+
+            print("3. 結果表示を待ちます（15秒）...")
+            time.sleep(15)
+
+            print(f"\n=== [検索結果画面スキャン] 現在のURL: {page.url} ===")
+            
+            # 全フレームを総当たりで調査
+            frames = page.frames
+            print(f"検知されたフレーム数: {len(frames)}")
+
+            for i, f in enumerate(frames):
+                try:
+                    # フレーム内のテキスト、テーブル構造、ボタンを調査
+                    info = f.evaluate('''() => {
+                        return {
+                            name: window.name,
+                            url: window.location.href,
+                            text: document.body.innerText.substring(0, 200).replace(/\\n/g, ' '),
+                            hasTable: document.querySelectorAll('table').length,
+                            hasTbody: !!document.querySelector('#tBody'),
+                            buttons: Array.from(document.querySelectorAll('input, a')).map(el => el.value || el.innerText).filter(t => t)
+                        }
+                    }''')
+                    
+                    print(f"\n[Frame {i}] Name: '{info['name']}' | URL: {info['url']}")
+                    print(f"  内容冒頭: {info['text']}...")
+                    print(f"  テーブル数: {info['hasTable']} | #tBodyの有無: {info['hasTbody']}")
+                    if info['buttons']:
+                        print(f"  ボタン/リンク: {info['buttons'][:10]}")
+
+                except Exception as e:
+                    print(f"  [Frame {i}] 解析不可: {e}")
+
+            # 証拠保存
+            page.screenshot(path="debug_after_click.png", full_page=True)
+            with open("debug_page.html", "w", encoding="utf-8") as file:
+                file.write(page.content())
+            print("\n調査完了。")
 
         except Exception as e:
-            print(f"エラー発生: {e}")
-            page.screenshot(path="debug_error.png")
+            print("実行エラー: " + str(e))
         finally:
             browser.close()
 
