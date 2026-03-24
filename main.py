@@ -4,65 +4,51 @@ import time
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        # コンテキスト作成時にポップアップ関連の制限を緩める設定
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            locale="ja-JP",
-            ignore_https_errors=True # http/https混在対策
+            locale="ja-JP"
         )
         page = context.new_page()
 
         try:
-            print("1. セッション確立のため、ベースURLにアクセスします...")
-            # まずはサイトの入り口にアクセスしてCookieを取得
+            print("1. 自治体選択画面へアクセス...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/MainServlet?Error=&Message=", 
-                      wait_until="networkidle", timeout=60000)
+                      wait_until="networkidle")
             
-            print("2. ポップアップをバイパスし、直接本番フレームページへ遷移します...")
-            # 本来 window.open で開かれるURLを、現在のタブで直接開く
-            page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/TopServlet", 
-                      wait_until="networkidle", timeout=60000)
+            # 「熊本県」のロゴ（jsClick(1)）をクリック
+            print("2. 「熊本県」を選択します...")
+            # class="ATYPE" の 0番目（熊本県）をクリック
+            page.locator(".ATYPE").first.click()
             
-            # ページが安定するまでしっかり待機
+            # 画面遷移とフレームの読み込みを待つ
             time.sleep(5)
 
-            print("3. フレーム構造を解析し、検索ボタンを特定します...")
-            # このサイトは frmRIGHT > frmTOP という二重フレーム構造です
+            # --- ここから検索画面への潜入 ---
+            print("3. 検索メニューフレームを探しています...")
+            # 自治体選択後は TopServlet の構造（frmRIGHTなど）に切り替わります
             frm_right = page.frame_locator('frame[name="frmRIGHT"]')
+            
+            # まずは「工事」などのメニューが出るはずなので、
+            # 以前のコードで狙っていた「検索ボタン」があるフレームを探します
             frm_top = frm_right.frame_locator('frame[name="frmTOP"]')
-            
-            # 検索ボタン(btnSearch)を探す
             btn_search = frm_top.locator('input[name="btnSearch"]')
-            
-            # ボタンが表示されるまで最大20秒待つ
-            btn_search.wait_for(state="visible", timeout=20000)
-            print("検索ボタンを発見しました。クリックします。")
-            btn_search.click()
 
-            print("4. 検索結果（下部フレーム）を待機中...")
-            time.sleep(5) # サーバーの応答待ち
-            
-            # 結果は frmRIGHT > frmBOTTOM に表示されます
-            frm_bottom = frm_right.frame_locator('frame[name="frmBOTTOM"]')
-            # 結果テーブルの行を特定
-            rows = frm_bottom.locator("#tBody tr")
-            
-            # 最初の行がDOMに出現するまで待機
-            rows.first.wait_for(state="attached", timeout=30000)
-            
-            all_rows = rows.all()
-            print(f"成功！ {len(all_rows)} 件のデータを検出しました。")
+            # もし「検索ボタン」がまだ見えない場合、途中で「工事」などのボタンを押す必要があります
+            # 一旦、今の状態でボタンが見えるかチェック
+            if btn_search.count() > 0:
+                print("検索ボタン発見、クリックします。")
+                btn_search.click()
+            else:
+                print("検索ボタンがまだありません。現在の画面をデバッグ保存します。")
+                # ここで止まる場合は、メニュー選択（工事/物品など）が必要です
+                raise Exception("Search button not found in current frame")
 
-            for i, row in enumerate(all_rows[:10]):
-                # セルごとのテキストを取得して整形
-                cols = row.locator("td").all_text_contents()
-                clean_cols = [c.strip().replace('\n', ' ') for c in cols if c.strip()]
-                if clean_cols:
-                    print(f"Row {i}: {clean_cols}")
+            print("4. 結果取得...")
+            time.sleep(5)
+            # (以下、以前の取得ロジックへ続く)
 
         except Exception as e:
-            print(f"エラーが発生しました: {e}")
-            # エラー時点の画面とHTMLを保存（これがあれば原因が100%わかります）
+            print(f"エラーまたは分岐点: {e}")
             page.screenshot(path="debug_error.png", full_page=True)
             with open("debug_page.html", "w", encoding="utf-8") as f:
                 f.write(page.content())
