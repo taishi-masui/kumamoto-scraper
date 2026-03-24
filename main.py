@@ -5,12 +5,19 @@ def main():
         browser = p.chromium.launch()
         page = browser.new_page()
 
-        # ★RIGHTだけ直接開く
-        page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/RightServlet")
+        # ★LEFTを直接開く
+        page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/PJC001Servlet?Mode=Left")
 
         page.wait_for_load_state("networkidle")
 
-        # ★検索ボタン
+        # ★jsLinkを直接実行（これが核心）
+        page.evaluate("jsLink(1,1)")
+
+        page.wait_for_timeout(3000)
+
+        # ★検索ボタン待ち
+        page.wait_for_selector("input[name='btnSearch']")
+
         page.click("input[name='btnSearch']")
 
         page.wait_for_timeout(3000)
