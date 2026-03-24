@@ -8,41 +8,51 @@ def main():
         page = context.new_page()
 
         try:
-            print("1. 熊本県セッションの開始（AccepterServletへアクセス）...")
-            # ポータルを経由せず、前回の成功URLを直接呼び出し
-            page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?Error=&Message=&kikan_no=0100", wait_until="networkidle")
-            
-            print("2. 安定を待ちます（10秒）...")
-            time.sleep(10)
+            print("1. ターゲット画面(MainServlet)へ到達...")
+            page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
+            time.sleep(10) # 完全にフレームが読み込まれるのを待つ
 
-            print("=== [Accepter解析] 現在のURL: " + page.url + " ===")
-            
-            # ページ内のテキストと要素を抽出（バックスラッシュを使わない安全な方法）
-            data = page.evaluate('''() => {
-                return {
-                    bodyText: document.body.innerText,
-                    elements: Array.from(document.querySelectorAll('a, area, img, input, frame, iframe')).map(el => {
+            # 調査対象のフレームリスト
+            target_frames = ["frmLEFT", "frmRIGHT"]
+
+            for frame_name in target_frames:
+                print(f"\n--- フレーム [{frame_name}] の内部調査 ---")
+                frame = page.frame_locator(f'frame[name="{frame_name}"]')
+                
+                # フレーム内の全要素（a, img, area, input）の属性を抽出
+                # バックスラッシュを避けた安全な抽出ロジック
+                elements_data = frame.evaluate('''() => {
+                    const tags = Array.from(document.querySelectorAll('a, img, area, input, span'));
+                    return tags.map(el => {
                         return {
                             tag: el.tagName,
                             text: el.innerText || el.alt || el.value || '',
-                            name: el.name || '',
                             onclick: el.getAttribute('onclick') || '',
-                            src: el.src || ''
+                            href: el.getAttribute('href') || '',
+                            id: el.id || '',
+                            className: el.className || ''
                         };
-                    })
-                };
-            }''')
+                    });
+                }''')
 
-            # テキストの出力（エラー回避のため単純なスライスのみ）
-            full_text = data['bodyText']
-            print("\n--- ページ内の全テキスト（冒頭） ---")
-            print(full_text[:500])
-            
-            print("\n--- 検出された要素（全件表示） ---")
-            for i, el in enumerate(data['elements']):
-                print(f"[{i}] {el['tag']} | Text: {el['text']} | Name: {el['name']} | OnClick: {el['onclick']}")
+                print(f"検出要素数: {len(elements_data)}")
+                
+                # 「検索」という文字を含む要素を特定
+                found_count = 0
+                for el in elements_data:
+                    if "検索" in el['text'] or "PBI001" in el['href'] or "js" in el['onclick']:
+                        print(f"  [発見] Tag: {el['tag']} | Text: {el['text']}")
+                        print(f"         OnClick: {el['onclick']}")
+                        print(f"         Href: {el['href']}")
+                        print(f"         ID: {el['id']} | Class: {el['className']}")
+                        print("  " + "-"*30)
+                        found_count += 1
+                
+                if found_count == 0:
+                    print("  !! このフレーム内には「検索」に関連する直接の要素は見つかりませんでした。")
 
-            # 確実な保存名でActionsと合わせる（名前を固定）
+            # 証拠として現在のHTMLソースとスクリーンショットを保存
+            # Actionsの設定に合わせてファイル名を固定
             page.screenshot(path="debug_after_click.png", full_page=True)
             with open("debug_page.html", "w", encoding="utf-8") as f:
                 f.write(page.content())
