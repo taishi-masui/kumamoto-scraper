@@ -10,36 +10,41 @@ def main():
         try:
             print("1. ターゲット画面(MainServlet)へ到達...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
-            time.sleep(10)
+            time.sleep(5)
 
-            print("\n=== [ターゲット要素の徹底解析] ===")
-            # 全フレームをループ。特に「frmRIGHT」に注目
+            print("2. 調査で判明した jsLink(1,1) を直接実行...")
+            # ターゲットが見つかった frmTOP フレームを取得
+            # (frmLEFTでも動くはずですが、メイン画面側のfrmTOPの方が安定します)
+            target_frame = page.frame(name="frmTOP") or page.frame(name="frmLEFT")
+            
+            if target_frame:
+                print(f"ターゲットフレーム '{target_frame.name}' で関数を実行します。")
+                target_frame.evaluate("jsLink(1,1);")
+            else:
+                print("!! ターゲットフレームが見つかりません。page全体で試行します。")
+                page.evaluate("jsLink(1,1);")
+
+            print("3. 検索条件入力画面(frmRIGHT)の安定を待ちます...")
+            time.sleep(7)
+
+            # 4. 最終確認: 検索実行ボタン(btnSearch)が frmRIGHT 内に出現したか
+            print("\n=== [最終確認] 検索ボタンの捜索 ===")
+            # 構造上、frmRIGHT の中のさらに子フレーム(frmTOPなど)にボタンがある可能性があるため、全フレームを再走査
+            found_btn = False
             for f in page.frames:
-                # 検索という文字を含む要素を抽出
-                elements = f.evaluate('''() => {
-                    return Array.from(document.querySelectorAll('a, img, input, span, div')).map(el => {
-                        return {
-                            tag: el.tagName,
-                            text: el.innerText.trim() || el.alt || '',
-                            onclick: el.getAttribute('onclick') || '',
-                            href: el.getAttribute('href') || ''
-                        };
-                    }).filter(e => e.text.includes('入札・契約情報の検索'));
-                }''')
+                btn = f.locator('input[name="btnSearch"]').first
+                if btn.count() > 0:
+                    print(f"★成功！ フレーム '{f.name}' 内に検索ボタン(btnSearch)を発見しました。")
+                    found_btn = True
+                    break
+            
+            if not found_btn:
+                print("まだ検索ボタンが見つかりません。")
 
-                if elements:
-                    print(f"\n[Frame名: {f.name}] にターゲットを発見！")
-                    for el in elements:
-                        print(f"  - Tag: {el['tag']}")
-                        print(f"    Text: {el['text']}")
-                        print(f"    OnClick: {el['onclick']}")
-                        print(f"    Href: {el['href']}")
-                
             # エビデンス保存
             page.screenshot(path="debug_after_click.png", full_page=True)
             with open("debug_page.html", "w", encoding="utf-8") as file:
                 file.write(page.content())
-            print("\n調査完了。")
 
         except Exception as e:
             print("実行エラー: " + str(e))
