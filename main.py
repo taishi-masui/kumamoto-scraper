@@ -5,48 +5,30 @@ def main():
         browser = p.chromium.launch()
         page = browser.new_page()
 
-        page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/MainServlet?Error=&Message=")
+        # ★最初から検索画面に行く
+        page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/RightServlet?ActionName=PJC001Servlet")
 
-        page.wait_for_timeout(5000)
+        page.wait_for_load_state("networkidle")
 
-        # ★フレーム一覧を確認（デバッグ）
-        frames = page.frames
-        print("=== フレーム一覧 ===")
-        for f in frames:
-            print(f.name, f.url)
-
-        # ★frmLEFTを探す（確実版）
-        left = None
-        for f in frames:
-            if "PJC001Servlet" in f.url:
-                left = f
-                break
-
-        if not left:
-            raise Exception("LEFTフレーム見つからない")
-
-        left.click("text=入札・契約情報の検索")
+        # 検索ボタン
+        page.click("input[name='btnSearch']")
 
         page.wait_for_timeout(3000)
 
-        # ★RIGHTも同じやり方
-        frames = page.frames
-        right = None
-        for f in frames:
-            if "RightServlet" in f.url:
-                right = f
-                break
-
-        if not right:
-            raise Exception("RIGHTフレーム見つからない")
-
-        right.click("input[name='btnSearch']")
-
-        page.wait_for_timeout(3000)
-
-        rows = right.query_selector_all("#tBody tr")
+        # データ取得
+        rows = page.query_selector_all("#tBody tr")
 
         print(f"件数: {len(rows)}")
+
+        for row in rows:
+            cols = row.query_selector_all("td")
+
+            if len(cols) < 5:
+                continue
+
+            print("-----")
+            print("番号:", cols[0].inner_text().strip())
+            print("工事名:", cols[2].inner_text().strip())
 
         browser.close()
 
