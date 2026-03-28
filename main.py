@@ -4,6 +4,7 @@ import csv
 import re
 
 def format_price(v):
+    """金額に¥マークとカンマを付与する"""
     if not v: return ""
     num_str = re.sub(r'[^\d]', '', v.split('(')[0])
     if not num_str: return ""
@@ -16,210 +17,183 @@ def main():
         page = context.new_page()
 
         try:
-            print("[LOG] 1. 検索条件画面を表示...")
+            print("1. 検索条件画面を表示...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
-            
-            # 実績コード: メニュー呼び出し
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
-            print(f"[LOG] メニューフレーム特定: {menu_f.url}")
             menu_f.evaluate("jsLink(1,1);")
             
-            # --- 2. 100件設定 & 検索実行 (実績コードそのまま) ---
-            print("[LOG] 2. 検索ボタンを探して100件設定＆実行...")
+            print("2. 検索実行...")
             search_started = False
             for _ in range(10): 
                 for f in page.frames:
                     try:
+                        # 100件表示設定を追加 (全件取得のため)
                         sel = f.locator('select[name="ListCount"]')
                         if sel.count() > 0:
                             sel.select_option("100")
-                            print(f"[LOG] ★100件に設定しました。(Frame: {f.url})")
-                            
+
                         btn = f.locator('input[name="btnSearch"]')
                         if btn.count() > 0:
                             f.evaluate("jsSearch();")
-                            print(f"[LOG] ★検索を実行しました。(Frame: {f.url})")
                             search_started = True
                             break
                     except: continue
                 if search_started: break
                 time.sleep(3)
 
-            # --- 3. データ抽出ループ (実績コードそのまま) ---
-            all_data = []
+            # 結果格納用
+            all_data_rows = []
+            header = []
             page_num = 1
-            global_count = 0
-            target_count = 180 # 180番目の詳細を取得する
-            
-            while True:
-                print(f"\n[LOG] --- ページ {page_num} 解析中 ---")
-                time.sleep(15) # 実績コードの遷移待ち
+            global_idx = 1
 
+            # --- 全ページを巡回するループ ---
+            while True:
+                print(f"\n=== ページ {page_num} の処理を開始 ===")
+
+                print("3. 結果一覧の出現を待機...")
                 target_f = None
-                for _ in range(5):
+                for _ in range(10):
                     for f in page.frames:
                         try:
                             if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
                                 target_f = f
-                                print(f"[LOG] 一覧フレーム特定成功: {f.url}")
                                 break
                         except: continue
                     if target_f: break
                     time.sleep(3)
                 
                 if not target_f:
-                    print("[LOG] !! データ(一覧フレーム)が見つかりません。終了します。")
+                    print("!! 一覧が見つからないため終了します。")
                     break
 
-                # データの抽出 (実績コードそのまま)
-                rows = target_f.locator("#tBody tr").all()
-                count = 0
-                
-                for i, r in enumerate(rows):
-                    global_count += 1
-                    cols = r.locator("td").all_text_contents()
-                    clean_row = [c.strip().replace('\n', ' ') for c in cols if c.strip()]
+                # 現在のページの全行数を取得
+                rows_count = target_f.locator("#tBody tr").count()
+                print(f"ページ {page_num}: 全 {rows_count} 件のデータを処理します。")
+
+                # --- ページ内の全行を1件ずつ処理するループ ---
+                for i in range(rows_count):
+                    print(f"\n--- [累計 {global_idx} 件目] の詳細を取得中 ---")
                     
-                    if clean_row:
-                        base_data = clean_row[0:4]
-                        detail_data = [""] * 27 # 詳細データ初期化
+                    # 再度一覧フレームを特定 (戻る処理の後はフレームがリセットされるため)
+                    for _ in range(5):
+                        for f in page.frames:
+                            try:
+                                if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
+                                    target_f = f
+                                    break
+                            except: continue
+                        if target_f: break
+                        time.sleep(2)
+
+                    rows = target_f.locator("#tBody tr")
+                    
+                    # 一覧情報を取得
+                    row_el = rows.nth(i)
+                    all_cells = [c.inner_text().strip().replace('\n', ' ') for c in row_el.locator("td").all()]
+                    base_data = all_cells[0:4] 
+
+                    print(f"4. 詳細ボタン(jsBidInfo({i}))をクリック...")
+                    target_f.evaluate(f"jsBidInfo({i});")
+                    time.sleep(15)
+                    
+                    # --- 5. 遷移後の全フレーム調査 (実績コードそのまま) ---
+                    detail_txt = ""
+                    detail_f = None
+                    for frame_idx, f in enumerate(page.frames):
+                        try:
+                            res = f.evaluate("() => ({ url: window.location.href, text: document.body.innerText })")
+                            if "PJC503Servlet" in res['url']:
+                                detail_f = f
+                                detail_txt = res['text']
+                        except: continue
+
+                    if detail_f:
+                        print("★詳細情報の解析...")
                         
-                        # --- 180件目の詳細取得 ---
-                        if global_count == target_count:
-                            print(f"\n[LOG] ===========================================")
-                            print(f"[LOG] ★ターゲット到達: {global_count}件目 (ページ内インデックス: {i})")
-                            print(f"[LOG] 案件名: {base_data[2] if len(base_data)>2 else ''}")
-                            print(f"[LOG] jsBidInfo({i}) を実行します...")
-                            
-                            target_f.evaluate(f"jsBidInfo({i});")
-                            print("[LOG] 詳細画面の描画を待機します(最大60秒)...")
-                            
-                            # 【新規追加要素】15秒固定ではなく、最大60秒間サーバーの応答(Loading.jspの終了)を待つ
-                            detail_f = None
-                            detail_txt = ""
-                            for sec in range(1, 61):
-                                time.sleep(1)
-                                for f_frame in page.frames:
-                                    if "PJC503Servlet" in f_frame.url:
-                                        detail_f = f_frame
-                                        break
-                                
-                                if detail_f:
-                                    try:
-                                        temp_txt = detail_f.evaluate("() => document.body.innerText")
-                                        if len(temp_txt) > 50: # 十分なテキストがあれば描画完了とみなす
-                                            detail_txt = temp_txt
-                                            print(f"[LOG] -> {sec}秒で詳細フレーム(PJC503Servlet)を捕捉しました。")
-                                            break
-                                    except:
-                                        pass
-                                    detail_f = None # テキストが取れるまではリトライ
-                                    
-                                if sec % 10 == 0:
-                                    print(f"[LOG]    ...待機中 ({sec}秒経過)")
-                                    if any("Loading.jsp" in f.url for f in page.frames):
-                                        print("[LOG]    (※サイトは現在「読込中(Loading)」です。サーバーからの応答を待っています)")
-                            
-                            if detail_f and detail_txt:
-                                print("[LOG] 詳細テキストの解析を開始...")
-                                time.sleep(2) # 念のための安定待ち
-                                
-                                # (実績コードそのままの正規表現抽出ロジック)
-                                def get_v(label):
-                                    m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
-                                    res = m.group(1).strip() if m else ""
-                                    return res
+                        def get_v(label):
+                            m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
+                            if not m: return ""
+                            return m.group(1).strip()
 
-                                case_no = get_v("電子入札案件番号")
-                                d_fields = [
-                                    f'="{case_no}"',
-                                    get_v("工事・業務名"),
-                                    get_v("場所"),
-                                    format_price(get_v("予定価格")),
-                                    format_price(get_v("最低制限価格")),
-                                    get_v("開札（予定）日"),
-                                    get_v("状態")
-                                ]
-                                
-                                b_list = []
-                                try:
-                                    bid_txt = detail_txt.split("摘要")[-1].split("備考")[0]
-                                    matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_txt)
-                                    for m in matches:
-                                        name = m[0].strip()
-                                        if name and not name.isdigit():
-                                            b_list.append([name, format_price(m[1])])
-                                except Exception as e:
-                                    print(f"[LOG] 業者抽出エラー: {e}")
-                                    
-                                b_fixed = []
-                                for k in range(10):
-                                    b_fixed.extend(b_list[k] if k < len(b_list) else ["", ""])
-                                    
-                                detail_data = d_fields + b_fixed
-                                print("[LOG] ★詳細データの抽出と格納が完了しました。")
-                                
-                                # 戻る処理 (実績コードそのまま)
-                                print("[LOG] jsBack() を実行して一覧に戻ります...")
-                                detail_f.evaluate("jsBack();")
-                                print("[LOG] 一覧への戻りを待機(最大30秒)...")
-                                
-                                # 【新規追加要素】一覧に戻る際も固定待ちではなく動的に待つ
-                                target_f = None
-                                for sec in range(1, 31):
-                                    time.sleep(1)
-                                    for f in page.frames:
-                                        try:
-                                            if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
-                                                target_f = f
-                                                break
-                                        except: continue
-                                    if target_f:
-                                        print(f"[LOG] -> {sec}秒後に一覧フレームへ復帰しました。")
-                                        time.sleep(3) # 安定待ち
-                                        break
-                            else:
-                                print("[LOG] !! 60秒待機しましたが詳細フレームが開かない、または読込が終わりませんでした。")
-                            print(f"[LOG] ===========================================")
+                        case_id = get_v("電子入札案件番号")
+                        
+                        # 詳細基本7項目 (¥マークと0落ち防止を適用)
+                        detail_fields = [
+                            f'="{case_id}"', 
+                            get_v("工事・業務名"), 
+                            get_v("場所"),
+                            format_price(get_v("予定価格")), 
+                            format_price(get_v("最低制限価格")), 
+                            get_v("開札（予定）日"), 
+                            get_v("状態")
+                        ]
 
-                        all_data.append(base_data + detail_data)
-                        count += 1
-                
-                print(f"[LOG] ページ {page_num}: {count}件取得完了 (累計: {len(all_data)}件)")
+                        # 入札結果（業者10社分固定）
+                        bidders_part = []
+                        try:
+                            bid_txt = detail_txt.split("摘要")[-1].split("備考")[0]
+                            matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_txt)
+                            valid_bidders = []
+                            for name, price in matches:
+                                n = name.strip()
+                                if n and not n.replace(',','').isdigit():
+                                    valid_bidders.append([n, format_price(price)])
+                            
+                            for k in range(10):
+                                if k < len(valid_bidders):
+                                    bidders_part.extend(valid_bidders[k])
+                                else:
+                                    bidders_part.extend(["", ""])
+                        except:
+                            bidders_part = [""] * 20
 
-                # 「次頁」ボタンのチェック (実績コードそのまま)
+                        # ヘッダー作成（初回のみ）
+                        if not header:
+                            header = ["施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法"]
+                            header += ["電子入札案件番号", "工事・業務名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
+                            for k in range(1, 11):
+                                header.extend([f"業者{k}", f"金額{k}"])
+
+                        # 1行分をリストに追加
+                        all_data_rows.append(base_data + detail_fields + bidders_part)
+                        
+                        print("★保存完了。戻ります。")
+                        detail_f.evaluate("jsBack();")
+                        time.sleep(10) # 戻った後の描画待ち
+                    else:
+                        print("!! 詳細フレームが見つかりませんでした。")
+                        
+                    global_idx += 1
+
+                # --- ページ内の全行処理完了 ---
+                # 次のページがあるか確認
+                print("\nページ内の全件処理が完了しました。「次頁」ボタンを探します...")
                 try:
-                    if not target_f:
-                        print("[LOG] target_f が無効なため次頁チェックをスキップして終了します。")
-                        break
                     next_btn = target_f.locator('input[name="btnNextPage"]')
                     if next_btn.count() > 0 and next_btn.is_enabled():
-                        print("[LOG] 「次頁」ボタンを発見。クリックします。")
+                        print("「次頁」ボタンをクリックして次のページへ進みます。")
                         target_f.evaluate("jsNextPage();")
                         page_num += 1
+                        time.sleep(15) # ページ遷移待ち
                     else:
-                        print("[LOG] 最後のページです。ループを終了します。")
+                        print("最後のページに到達しました。全処理を終了します。")
                         break
                 except Exception as e:
-                    print(f"[LOG] ボタン操作中にエラーが発生しました（遷移中）。終了します。: {e}")
+                    print(f"次ページへの遷移中にエラーが発生しました: {e}")
                     break
 
-            # 保存 (実績コードそのまま)
-            print("\n[LOG] 全ページの処理が完了しました。CSVへ保存します。")
-            if all_data:
-                header = ["施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法",
-                          "電子入札案件番号", "詳細_工事名", "場所", "予定価格", "最低制限価格", "開札日", "状態"]
-                for k in range(1, 11): header.extend([f"業者{k}", f"金額{k}"])
-
-                with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f_csv:
-                    writer = csv.writer(f_csv)
+            # --- 全件終了後にCSV書き出し ---
+            if all_data_rows:
+                with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
+                    writer = csv.writer(f)
                     writer.writerow(header)
-                    writer.writerows(all_data)
-                print(f"[LOG] ★完了！ 全 {len(all_data)} 件を保存しました。")
+                    writer.writerows(all_data_rows)
+                print(f"\n★全 {len(all_data_rows)} 件の詳細保存が完了しました。")
 
         except Exception as e:
-            print(f"[LOG] 重大なエラー: {e}")
+            print(f"エラー: {e}")
         finally:
             browser.close()
 
