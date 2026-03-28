@@ -1,6 +1,5 @@
 from playwright.sync_api import sync_playwright
 import time
-import csv
 
 def main():
     with sync_playwright() as p:
@@ -9,97 +8,63 @@ def main():
         page = context.new_page()
 
         try:
-            print("1. 検索条件画面を表示...")
+            print("1. 一覧画面（100件表示状態）まで移動...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
-            
-            # メニューから検索画面呼び出し
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
-            
-            # --- 2. 100件設定 & 検索実行 (リトライ付き) ---
-            print("2. 検索ボタンを探して100件設定＆実行...")
-            search_started = False
-            for _ in range(10): # 最大10回リトライ
-                for f in page.frames:
-                    try:
-                        # セレクトボックスがあれば100件に設定
-                        sel = f.locator('select[name="ListCount"]')
-                        if sel.count() > 0:
-                            sel.select_option("100")
-                            print("★100件に設定しました。")
-                            
-                        # 検索ボタンがあれば実行
-                        btn = f.locator('input[name="btnSearch"]')
-                        if btn.count() > 0:
-                            f.evaluate("jsSearch();")
-                            print("★検索を実行しました。")
-                            search_started = True
-                            break
-                    except: continue
-                if search_started: break
-                time.sleep(3)
+            time.sleep(10)
 
-            # --- 3. データ抽出ループ ---
-            all_data = []
-            page_num = 1
-            
-            while True:
-                print(f"\n--- ページ {page_num} 解析中 ---")
-                time.sleep(15) # 遷移待ち
-
-                target_f = None
-                # データがあるフレームを粘り強く探す
-                for _ in range(5):
-                    for f in page.frames:
-                        try:
-                            if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
-                                target_f = f
-                                break
-                        except: continue
-                    if target_f: break
-                    time.sleep(3)
-                
-                if not target_f:
-                    print("データが見つかりません。終了します。")
-                    break
-
-                # データの抽出
-                rows = target_f.locator("#tBody tr").all()
-                count = 0
-                for r in rows:
-                    cols = r.locator("td").all_text_contents()
-                    clean_row = [c.strip().replace('\n', ' ') for c in cols if c.strip()]
-                    if clean_row:
-                        all_data.append(clean_row)
-                        count += 1
-                
-                print(f"ページ {page_num}: {count}件取得 (累計: {len(all_data)}件)")
-
-                # 「次頁」ボタンのチェック
+            # 検索実行
+            for f in page.frames:
                 try:
-                    next_btn = target_f.locator('input[name="btnNextPage"]')
-                    if next_btn.count() > 0 and next_btn.is_enabled():
-                        print("「次頁」をクリックします。")
-                        target_f.evaluate("jsNextPage();")
-                        page_num += 1
-                    else:
-                        print("最後のページです。")
+                    if f.locator('input[name="btnSearch"]').count() > 0:
+                        f.locator('select[name="ListCount"]').select_option("100")
+                        f.evaluate("jsSearch();")
                         break
-                except:
-                    print("ボタン操作中にエラーが発生しました（遷移中）。終了します。")
+                except: continue
+            
+            print("2. 検索結果の出現を待機...")
+            time.sleep(15)
+            
+            # データがあるフレームを特定
+            target_f = None
+            for f in page.frames:
+                if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
+                    target_f = f
                     break
-
-            # 保存
-            if all_data:
-                with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f_csv:
-                    writer = csv.writer(f_csv)
-                    writer.writerows(all_data)
-                print(f"★完了！ 全 {len(all_data)} 件を保存。")
+            
+            if target_f:
+                print("3. 1行目の「入札情報」ボタンをクリック...")
+                # 最初の行にある「入札情報」ボタン（input[value="入札情報"]）を特定
+                detail_btn = target_f.locator('input[value="入札情報"]').first
+                
+                # 新しいウィンドウが開くタイプか、同一画面遷移かを判定するために
+                # クリックと同時に「新しいページの出現」を待機する設定で動かします
+                with page.expect_popup() as popup_info:
+                    detail_btn.click()
+                
+                detail_page = popup_info.value
+                detail_page.wait_for_load_state("networkidle")
+                time.sleep(5)
+                
+                print(f"★詳細画面を捕捉！ URL: {detail_page.url}")
+                
+                # 詳細画面の内容をスキャン
+                detail_content = detail_page.evaluate("() => document.body.innerText.substring(0, 500)")
+                print(f"詳細画面の冒頭内容:\n{detail_content}")
+                
+                # 証拠保存
+                detail_page.screenshot(path="debug_detail_view.png", full_page=True)
+                with open("debug_detail.html", "w", encoding="utf-8") as f:
+                    f.write(detail_page.content())
+                
+                detail_page.close()
+            else:
+                print("一覧データが見つかりませんでした。")
 
         except Exception as e:
-            print(f"重大なエラー: {e}")
-            page.screenshot(path="debug_error.png")
+            print(f"調査エラー: {e}")
         finally:
             browser.close()
 
