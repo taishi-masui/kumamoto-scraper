@@ -16,45 +16,52 @@ def main():
             # メニューから検索画面呼び出し
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
-            time.sleep(10)
-
-            print("2. 検索ボタンがあるフレームを特定...")
-            input_frame = None
-            for f in page.frames:
-                if f.locator('input[name="btnSearch"]').count() > 0:
-                    input_frame = f
-                    break
             
-            if not input_frame:
-                print("検索入力フレームが見つかりません。")
-                return
+            # --- 2. 100件設定 & 検索実行 (リトライ付き) ---
+            print("2. 検索ボタンを探して100件設定＆実行...")
+            search_started = False
+            for _ in range(10): # 最大10回リトライ
+                for f in page.frames:
+                    try:
+                        # セレクトボックスがあれば100件に設定
+                        sel = f.locator('select[name="ListCount"]')
+                        if sel.count() > 0:
+                            sel.select_option("100")
+                            print("★100件に設定しました。")
+                            
+                        # 検索ボタンがあれば実行
+                        btn = f.locator('input[name="btnSearch"]')
+                        if btn.count() > 0:
+                            f.evaluate("jsSearch();")
+                            print("★検索を実行しました。")
+                            search_started = True
+                            break
+                    except: continue
+                if search_started: break
+                time.sleep(3)
 
-            print("3. 表示件数を100件に設定...")
-            input_frame.locator('select[name="ListCount"]').select_option("100")
-            time.sleep(2)
-
-            print("4. 検索実行...")
-            # エラーの出た全フレーム一斉射撃ではなく、特定したフレームの関数を直接叩く
-            input_frame.evaluate("jsSearch();")
-            
+            # --- 3. データ抽出ループ ---
             all_data = []
             page_num = 1
             
             while True:
-                print(f"\n--- ページ {page_num} の待機と解析 ---")
-                time.sleep(15) # ページ遷移・構築待ち
-                
-                # データがあるフレーム(frmMIDDLE)を再特定
+                print(f"\n--- ページ {page_num} 解析中 ---")
+                time.sleep(15) # 遷移待ち
+
                 target_f = None
-                for f in page.frames:
-                    try:
-                        if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
-                            target_f = f
-                            break
-                    except: continue
+                # データがあるフレームを粘り強く探す
+                for _ in range(5):
+                    for f in page.frames:
+                        try:
+                            if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
+                                target_f = f
+                                break
+                        except: continue
+                    if target_f: break
+                    time.sleep(3)
                 
                 if not target_f:
-                    print("データフレームが見つかりません。終了します。")
+                    print("データが見つかりません。終了します。")
                     break
 
                 # データの抽出
@@ -70,16 +77,17 @@ def main():
                 print(f"ページ {page_num}: {count}件取得 (累計: {len(all_data)}件)")
 
                 # 「次頁」ボタンのチェック
-                # ユーザーから提供されたHTML: <input name="btnNextPage" type="button" value="次頁" onclick="jsNextPage();">
-                next_btn = target_f.locator('input[name="btnNextPage"]')
-                
-                if next_btn.count() > 0 and next_btn.is_enabled():
-                    print("「次頁」をクリックします。")
-                    # 直接クリックではなく、確実なJS実行で行く（遷移エラー回避のため）
-                    target_f.evaluate("jsNextPage();")
-                    page_num += 1
-                else:
-                    print("次頁ボタンがないか、無効（最後のページ）です。")
+                try:
+                    next_btn = target_f.locator('input[name="btnNextPage"]')
+                    if next_btn.count() > 0 and next_btn.is_enabled():
+                        print("「次頁」をクリックします。")
+                        target_f.evaluate("jsNextPage();")
+                        page_num += 1
+                    else:
+                        print("最後のページです。")
+                        break
+                except:
+                    print("ボタン操作中にエラーが発生しました（遷移中）。終了します。")
                     break
 
             # 保存
@@ -90,7 +98,7 @@ def main():
                 print(f"★完了！ 全 {len(all_data)} 件を保存。")
 
         except Exception as e:
-            print(f"エラー発生: {e}")
+            print(f"重大なエラー: {e}")
             page.screenshot(path="debug_error.png")
         finally:
             browser.close()
