@@ -16,7 +16,7 @@ def main():
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
             
-            # --- 2. 検索実行 ---
+            # --- 2. 検索実行 (成功ルートそのまま) ---
             print("2. 検索ボタンを探して実行...")
             search_started = False
             for _ in range(10): 
@@ -46,90 +46,81 @@ def main():
                 time.sleep(3)
             
             if target_f:
-                # --- 【重要】クリック前に一覧情報をそのまま確保 ---
-                # あなたが以前成功させた「tdのテキストをそのまま取る」ロジックです
-                row_cells = target_f.locator("#tBody tr").nth(0).locator("td")
-                base_data = [c.inner_text().strip().replace('\n', ' ') for c in row_cells.all()]
-                print(f"★一覧情報を確保しました: {base_data}")
+                # --- 一覧情報をそのまま確保 ---
+                row_el = target_f.locator("#tBody tr").nth(0)
+                base_data = [c.inner_text().strip().replace('\n', ' ') for c in row_el.locator("td").all()]
 
-                print("4. 1行目の『入札情報』ボタンをクリック...")
+                print("4. 1行目の『入札情報』ボタン(jsBidInfo(0))をクリック...")
                 target_f.evaluate("jsBidInfo(0);")
-                print("15秒待機します...")
+                print("クリック完了。画面の切り替えを待ちます（15秒）...")
                 time.sleep(15)
                 
-                # --- 5. 遷移後の全フレーム調査 (成功したスキャン構造を維持) ---
+                # --- 5. 遷移後の全フレーム調査 (成功したコードを完全再現) ---
                 print("\n=== [遷移後のフレーム構造スキャン] ===")
-                detail_results = None
-                for f in page.frames:
+                detail_f = None
+                detail_txt = ""
+                for i, f in enumerate(page.frames):
                     try:
-                        # 成功した時詳細が出ていたURLを捕捉するためのログ
-                        res = f.evaluate("() => ({ url: window.location.href, text: document.body.innerText.substring(0, 100) })")
-                        print(f"Frame URL: {res['url']}")
+                        res = f.evaluate('''() => {
+                            return {
+                                url: window.location.href,
+                                text: document.body.innerText.substring(0, 500).replace(/\\n/g, ' '),
+                                tables: document.querySelectorAll('table').length
+                            }
+                        }''')
+                        # あなたが以前「うまくいった」と仰った時のログ出力をそのまま維持
+                        print(f"Frame[{i}] URL: {res['url']}")
+                        print(f"  内容: {res['text']}...")
                         
                         if "PJC503Servlet" in res['url']:
-                            # 表構造からラベルと値を正確に抜き出す
-                            detail_results = f.evaluate('''() => {
-                                const tables = Array.from(document.querySelectorAll('table'));
-                                const details = {};
-                                const bidders = [];
-                                
-                                // 基本情報テーブルの解析
-                                tables.forEach(table => {
-                                    table.querySelectorAll('tr').forEach(tr => {
-                                        const th = tr.querySelector('th');
-                                        const td = tr.querySelector('td');
-                                        if (th && td) {
-                                            details[th.innerText.trim().replace(/\\s/g, "")] = td.innerText.trim();
-                                        }
-                                    });
-                                });
-
-                                // 入札結果テーブルの解析
-                                const bidderTable = tables.find(t => t.innerText.includes('業者名'));
-                                if (bidderTable) {
-                                    const rows = Array.from(bidderTable.querySelectorAll('tr')).slice(1);
-                                    rows.forEach(row => {
-                                        const cells = Array.from(row.querySelectorAll('td')).map(c => c.innerText.trim());
-                                        if (cells.length > 0 && !cells[0].includes('事前公開していません')) {
-                                            bidders.push(cells);
-                                        }
-                                    });
-                                }
-                                return { details, bidders };
-                            }''')
+                            detail_f = f
+                            detail_txt = f.evaluate("() => document.body.innerText")
                     except: continue
 
-                if detail_results:
-                    print("★詳細情報の抽出完了。整形します。")
+                # --------------------------------------------------
+                # スキャンの「後」で、詳細情報を抽出
+                # --------------------------------------------------
+                if detail_f:
+                    print("\n★詳細情報の抽出を開始...")
                     
-                    # 価格クレンジング用
-                    def clean_price(v):
-                        if not v: return ""
-                        v = v.split('(')[0] # かっこ以降を削除
-                        return re.sub(r'[^\d]', '', v) # 数字以外を削除
+                    def get_v(label):
+                        # ラベルの後の値を抽出
+                        m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
+                        if not m: return ""
+                        v = m.group(1).strip()
+                        # 価格は指定通り数値化
+                        if "価格" in label:
+                            v = v.split('(')[0].replace('円', '').replace(',', '').strip()
+                        return v
 
-                    # 指定された7項目
-                    d_keys = ["電子入札案件番号", "工事・業務名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
-                    detail_fields = []
-                    for k in d_keys:
-                        val = detail_results['details'].get(k, "")
-                        if k in ["予定価格", "最低制限価格"]:
-                            val = clean_price(val)
-                        detail_fields.append(val)
+                    detail_fields = [
+                        get_v("電子入札案件番号"),
+                        get_v("工事・業務名"),
+                        get_v("場所"),
+                        get_v("予定価格"),
+                        get_v("最低制限価格"),
+                        get_v("開札（予定）日"),
+                        get_v("状態")
+                    ]
 
-                    # 入札結果（業者名, 金額1, 金額2...）
+                    # 入札結果（業者名, 金額1, ...）の抽出
                     bidders_part = []
-                    for b in detail_results['bidders']:
-                        # 業者名(b[0]) + 金額列(b[1:-1])
-                        name = b[0]
-                        prices = [p.replace(',', '') for p in b[1:-1]]
-                        bidders_part.extend([name] + prices)
+                    try:
+                        # 業者名セクションを抜き出し
+                        bid_txt = detail_txt.split("摘要")[-1].split("備考")[0]
+                        # 業者名と金額のペアを探す
+                        matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_txt)
+                        for name, price in matches:
+                            n = name.strip()
+                            if n and not n.replace(',','').isdigit():
+                                bidders_part.extend([n, price.replace(',', '').strip()])
+                    except: pass
 
                     # --- ヘッダー作成 ---
-                    header = [f"一覧_{i}" for i in range(len(base_data))]
-                    header += d_keys
-                    for i in range(len(detail_results['bidders'])):
-                        header += [f"業者_{i+1}", f"金額_{i+1}_回1"] # 簡易ヘッダー
+                    header = [f"一覧_{j}" for j in range(len(base_data))]
+                    header += ["電子入札案件番号", "工事・業務名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
+                    for k in range(len(bidders_part) // 2):
+                        header.extend([f"業者名_{k+1}", f"金額_{k+1}"])
 
                     # --- 保存 ---
                     full_row = base_data + detail_fields + bidders_part
@@ -139,11 +130,9 @@ def main():
                         writer.writerow(full_row)
                     
                     print(f"★全情報をCSVに保存しました: {full_row}")
-                    # 戻る
-                    detail_f = next(f for f in page.frames if "PJC503Servlet" in f.url)
                     detail_f.evaluate("jsBack();")
-                else:
-                    print("!! 詳細内容が見つかりませんでした。")
+                
+                print("\n完了。")
             else:
                 print("!! 一覧が見つかりませんでした。")
 
