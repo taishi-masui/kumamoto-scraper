@@ -4,7 +4,6 @@ import csv
 import re
 
 def format_price(v):
-    """¥マークとカンマを付与した数値文字列を返す"""
     if not v: return ""
     num_str = re.sub(r'[^\d]', '', v.split('(')[0])
     if not num_str: return ""
@@ -17,50 +16,64 @@ def main():
         page = context.new_page()
 
         try:
-            print("1. 検索実行...")
+            print("1. 検索条件画面を表示...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
+            
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
             
-            # 検索フレーム特定
-            for f in page.frames:
-                if f.locator('input[name="btnSearch"]').count() > 0:
-                    # すでに解決済みの「100件表示」を確実に実行
-                    f.evaluate('''() => {
-                        const sel = document.getElementsByName("listCount")[0];
-                        if(sel) { sel.value = "100"; sel.onchange(); }
-                    }''')
-                    time.sleep(2)
-                    f.evaluate("jsSearch();")
-                    break
+            # --- 2. 100件設定 & 検索実行 (成功したリトライ方式を完全再現) ---
+            print("2. 検索ボタンを探して100件設定＆実行...")
+            search_started = False
+            for _ in range(10): 
+                for f in page.frames:
+                    try:
+                        # セレクトボックスがあれば100件に設定 (成功コードのまま)
+                        sel = f.locator('select[name="ListCount"]')
+                        if sel.count() > 0:
+                            sel.select_option("100")
+                            print("★100件に設定しました。")
+                            
+                        # 検索ボタンがあれば実行 (成功コードのまま)
+                        btn = f.locator('input[name="btnSearch"]')
+                        if btn.count() > 0:
+                            f.evaluate("jsSearch();")
+                            print("★検索を実行しました。")
+                            search_started = True
+                            break
+                    except: continue
+                if search_started: break
+                time.sleep(3)
 
-            print("2. 100件一覧の出現を待機中...")
+            # --- 3. 80番目のデータを特定 ---
+            print("3. 結果一覧の出現を待機中...")
             target_f = None
             for _ in range(15):
                 for f in page.frames:
-                    if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
-                        target_f = f
-                        break
+                    try:
+                        if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
+                            target_f = f
+                            break
+                    except: continue
                 if target_f: break
                 time.sleep(3)
             
             if target_f:
-                # 80番目 (index 79)
-                idx = 79
+                idx = 79 # 80番目
                 rows = target_f.locator("#tBody tr")
-                print(f"   現在の表示件数: {rows.count()}件")
+                print(f"   現在の一覧表示件数: {rows.count()}件")
 
-                # 一覧情報の確保
+                # 一覧の4項目を確保
                 row_el = rows.nth(idx)
                 all_cells = [c.inner_text().strip().replace('\n', ' ') for c in row_el.locator("td").all()]
                 base_data = all_cells[0:4]
 
-                print(f"3. 80個目の詳細をクリック(jsBidInfo({idx}))...")
+                print(f"4. 80個目の詳細ボタンをクリック(jsBidInfo({idx}))...")
                 target_f.evaluate(f"jsBidInfo({idx});")
                 time.sleep(15)
                 
-                # 詳細フレーム特定
+                # --- 5. 詳細フレーム特定と抽出 ---
                 detail_f = None
                 detail_txt = ""
                 for f in page.frames:
@@ -70,14 +83,14 @@ def main():
                         break
 
                 if detail_f:
-                    print("4. 解析と保存...")
+                    print("★解析と保存...")
                     def get_val(label):
                         m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
                         return m.group(1).strip() if m else ""
 
                     case_id = get_val("電子入札案件番号")
                     detail_fields = [
-                        f'="{case_id}"', # 0落ち防止
+                        f'="{case_id}"', 
                         get_val("工事・業務名"),
                         get_val("場所"),
                         format_price(get_val("予定価格")),
@@ -86,7 +99,6 @@ def main():
                         get_val("状態")
                     ]
 
-                    # 業者10名固定
                     b_list = []
                     try:
                         bid_txt = detail_txt.split("摘要")[-1].split("備考")[0]
@@ -100,7 +112,6 @@ def main():
                     for k in range(10):
                         bidders_part.extend(b_list[k] if k < len(b_list) else ["", ""])
 
-                    # 保存
                     header = ["施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法",
                               "電子入札案件番号", "工事・業務名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
                     for k in range(1, 11): header.extend([f"業者{k}", f"金額{k}"])
