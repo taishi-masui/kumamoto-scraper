@@ -1,17 +1,6 @@
 from playwright.sync_api import sync_playwright
 import time
 import csv
-import os
-
-def save_debug(page, name):
-    """デバッグ用のスクリーンショットとHTMLを保存する関数"""
-    try:
-        page.screenshot(path=f"debug_{name}.png", full_page=True)
-        with open(f"debug_{name}.html", "w", encoding="utf-8") as f:
-            f.write(page.content())
-        print(f"--- デバッグ保存完了: {name} ---")
-    except Exception as e:
-        print(f"デバッグ保存失敗({name}): {e}")
 
 def main():
     with sync_playwright() as p:
@@ -23,76 +12,78 @@ def main():
             print("1. 検索条件画面を表示...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
-            
-            # メニューから検索画面呼び出し
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
             time.sleep(10)
-            save_debug(page, "01_input_page")
 
-            print("2. 表示件数を100件に切り替え中...")
+            print("2. 表示件数を100件に設定...")
             for f in page.frames:
                 try:
-                    # 'ListCount' を探し、値を100にしてchangeイベントを発火
                     target_select = f.locator('select[name="ListCount"]')
                     if target_select.count() > 0:
-                        # JavaScriptで確実に値をセットし、イベントを飛ばす
-                        f.evaluate('''() => {
-                            const sel = document.querySelector('select[name="ListCount"]');
-                            sel.value = "100";
-                            sel.dispatchEvent(new Event('change', { bubbles: true }));
-                        }''')
-                        print(f"★フレーム '{f.name}' にて100件設定を実行しました。")
+                        f.evaluate('() => { document.querySelector("select[name=\\"ListCount\\"]").value = "100"; }')
+                        print(f"★100件設定完了")
                         break
                 except: continue
-            
-            time.sleep(3)
-            save_debug(page, "02_after_selection")
 
             print("3. 検索実行...")
-            # 全フレームに対して jsSearch を実行（エラーは無視）
-            page.evaluate('''() => {
-                const trigger = (w) => {
-                    try { if (typeof w.jsSearch === "function") w.jsSearch(); } catch (e) {}
-                    for (let i = 0; i < w.frames.length; i++) trigger(w.frames[i]);
-                };
-                trigger(window);
-            }''')
+            page.evaluate('for(let f of window.frames) { if(f.jsSearch) f.jsSearch(); }')
             
-            print("4. 結果の出現を監視中（最大40秒）...")
-            scraped_data = []
-            start_time = time.time()
+            all_data = []
+            page_num = 1
             
-            while time.time() - start_time < 40:
+            while True:
+                print(f"\n--- ページ {page_num} の解析開始 ---")
+                # 遷移直後はフレームが不安定なため、しっかり待機
+                time.sleep(15)
+                
+                target_f = None
+                # データが入っているフレーム(frmMIDDLEなど)を探す
                 for f in page.frames:
                     try:
-                        row_count = f.evaluate("() => document.querySelectorAll('#tBody tr').length")
-                        if row_count > 0:
-                            print(f"★データ捕捉！ {row_count} 件を確認。")
-                            rows = f.locator("#tBody tr").all()
-                            for r in rows:
-                                cols = r.locator("td").all_text_contents()
-                                clean_row = [c.strip().replace('\\n', ' ').replace('\\t', ' ') for c in cols if c.strip()]
-                                if clean_row: scraped_data.append(clean_row)
-                            
-                            if scraped_data:
-                                with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f_csv:
-                                    writer = csv.writer(f_csv)
-                                    writer.writerows(scraped_data)
-                                print(f"--- result.csv に {len(scraped_data)} 件保存しました ---")
-                                save_debug(page, "03_result_success")
-                                break
+                        if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
+                            target_f = f
+                            break
                     except: continue
-                if scraped_data: break
-                time.sleep(3)
+                
+                if not target_f:
+                    print("データが見つからないため、終了します。")
+                    break
 
-            if not scraped_data:
-                print("!! 最終的にデータが見つかりませんでした。")
-                save_debug(page, "04_result_not_found")
+                # データの抽出
+                rows = target_f.locator("#tBody tr").all()
+                p_data_count = 0
+                for r in rows:
+                    cols = r.locator("td").all_text_contents()
+                    clean_row = [c.strip().replace('\n', ' ').replace('\t', ' ') for c in cols if c.strip()]
+                    if clean_row:
+                        all_data.append(clean_row)
+                        p_data_count += 1
+                
+                print(f"ページ {page_num}: {p_data_count}件取得 (累計: {len(all_data)}件)")
+
+                # 「次頁」ボタンの調査とクリック
+                # 構造から name="btnNextPage" を狙い撃ちします
+                next_btn = target_f.locator('input[name="btnNextPage"]')
+                
+                # ボタンが存在し、かつ disabled でないことを確認
+                if next_btn.count() > 0 and next_btn.is_enabled():
+                    print("「次頁」ボタンを発見。クリックして次へ進みます。")
+                    next_btn.click()
+                    page_num += 1
+                else:
+                    print("「次頁」ボタンがないか、無効化されています。全件取得完了です。")
+                    break
+
+            # 最終的なCSV保存
+            if all_data:
+                with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f_csv:
+                    writer = csv.writer(f_csv)
+                    writer.writerows(all_data)
+                print(f"\n★成功！ 全 {len(all_data)} 件を result.csv に保存しました。")
 
         except Exception as e:
-            print(f"実行中に重大なエラー: {e}")
-            save_debug(page, "99_fatal_error")
+            print(f"実行中にエラー: {e}")
         finally:
             browser.close()
 
