@@ -4,7 +4,7 @@ import csv
 import re
 
 def format_price(v):
-    """円やカンマを消し、¥マークとカンマを付与。空なら空。"""
+    """円やカンマを消し、¥マークとカンマを付与。"""
     if not v: return ""
     num_str = re.sub(r'[^\d]', '', v.split('(')[0])
     if not num_str: return ""
@@ -21,146 +21,148 @@ def main():
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
             
-            # メニュー操作 (成功コードそのまま)
+            # メニューから検索画面呼び出し (成功コード流用)
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
-            time.sleep(5)
-
-            # --- 2. 100件設定 & 検索実行 (成功コード完全再現) ---
+            
+            # --- 2. 100件設定 & 検索実行 (189件取得時の成功コードそのまま) ---
             print("2. 検索ボタンを探して100件設定＆実行...")
             search_started = False
             for _ in range(10): 
                 for f in page.frames:
                     try:
-                        # 成功コードのセレクタ
                         sel = f.locator('select[name="ListCount"]')
                         if sel.count() > 0:
                             sel.select_option("100")
-                            print(f"   [SUCCESS] 100件に設定完了 (URL: {f.url})")
-                            
+                            print("★100件に設定しました。")
                         btn = f.locator('input[name="btnSearch"]')
                         if btn.count() > 0:
-                            print(f"   [SUCCESS] 検索ボタン発見、jsSearch()実行 (URL: {f.url})")
                             f.evaluate("jsSearch();")
+                            print("★検索を実行しました。")
                             search_started = True
                             break
                     except: continue
                 if search_started: break
                 time.sleep(3)
 
-            # --- 3. 一覧待機 (URL判定を強化) ---
-            print("3. 結果一覧の出現を待機中...")
-            target_f = None
-            for retry in range(20):
-                for f in page.frames:
-                    # PJC502Servlet が一覧。tBodyの中身があれば成功
-                    if "PJC502Servlet" in f.url:
+            # --- 3. データ抽出ループ (189件取得ロジックに詳細取得を統合) ---
+            all_rows = []
+            page_num = 1
+            global_count = 0
+            target_index = 180  # 180番目の工事をターゲットに設定
+            
+            # ヘッダー定義
+            header = ["施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法",
+                      "電子入札案件番号", "詳細_工事名", "場所", "予定価格", "最低制限価格", "開札日", "状態"]
+            for k in range(1, 11): header.extend([f"業者{k}", f"金額{k}"])
+
+            while True:
+                print(f"\n--- ページ {page_num} 解析中 ---")
+                time.sleep(15) # 成功コードの遷移待ち
+
+                target_f = None
+                for _ in range(5):
+                    for f in page.frames:
                         try:
                             if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
                                 target_f = f
                                 break
                         except: continue
-                if target_f: break
-                print(f"   一覧待機中... ({retry+1}/20)")
-                time.sleep(2)
-            
-            if target_f:
-                idx = 79 # 80番目
-                rows = target_f.locator("#tBody tr")
-                count = rows.count()
-                print(f"★現在の一覧表示件数: {count}件")
-
-                # 一覧の4項目を確保
-                row_el = rows.nth(idx)
-                cols = row_el.locator("td").all_text_contents()
-                base_data = [c.strip().replace('\n', ' ') for c in cols if c.strip()][0:4]
-                print(f"★80個目の基本データ: {base_data}")
-
-                # --- 4. 詳細ボタンをクリック (成功コードの evaluate 実行) ---
-                print(f"4. 80個目の詳細ボタンをクリック(jsBidInfo({idx}))...")
-                target_f.evaluate(f"jsBidInfo({idx});")
+                    if target_f: break
+                    time.sleep(3)
                 
-                # --- 5. 詳細フレーム (PJC503Servlet) の出現を動的に監視 ---
-                print("5. 詳細画面(PJC503Servlet)への遷移を監視します...")
-                detail_f = None
-                for sec in range(30):
-                    # 毎秒全フレームをチェック。URLにPJC503Servletが含まれるものを探す
-                    for f in page.frames:
-                        if "PJC503Servlet" in f.url:
-                            detail_f = f
-                            break
-                    if detail_f:
-                        print(f"   [SUCCESS] {sec}秒後に詳細フレームを捕捉しました。")
-                        break
-                    if sec % 5 == 0:
-                        # 5秒おきに現在の全フレームURLをログ出し
-                        urls = [f.url for f in page.frames]
-                        print(f"   ...監視中({sec}秒経過)。現在存在するフレームURL: {urls}")
-                    time.sleep(1)
+                if not target_f:
+                    print("データが見つかりません。終了します。")
+                    break
 
-                if detail_f:
-                    print("6. データの抽出を開始します。")
-                    time.sleep(3) # 完全な描画を待つ
-                    detail_txt = detail_f.evaluate("() => document.body.innerText")
-
-                    def get_val(label):
-                        # ラベルに続く文字列を抽出
-                        m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
-                        return m.group(1).strip() if m else ""
-
-                    case_id = get_val("電子入札案件番号")
-                    detail_fields = [
-                        f'="{case_id}"', # Excel 0落ち防止
-                        get_val("工事・業務名"),
-                        get_val("場所"),
-                        format_price(get_val("予定価格")),
-                        format_price(get_val("最低制限価格")),
-                        get_val("開札（予定）日"),
-                        get_val("状態")
-                    ]
-
-                    # 業者10名固定ロジック
-                    b_list = []
-                    try:
-                        # 摘要以降〜備考まで
-                        parts = detail_txt.split("摘要")
-                        if len(parts) > 1:
-                            bid_txt = parts[-1].split("備考")[0]
-                            # 業者名と金額のペアを抽出
-                            matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_txt)
-                            for m in matches:
-                                if not m[0].strip().isdigit():
-                                    b_list.append([m[0].strip(), format_price(m[1])])
-                    except: pass
-
-                    bidders_part = []
-                    for k in range(10):
-                        if k < len(b_list): bidders_part.extend(b_list[k])
-                        else: bidders_part.extend(["", ""])
-
-                    # ヘッダー定義
-                    header = ["施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法",
-                              "電子入札案件番号", "工事・業務名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
-                    for k in range(1, 11):
-                        header.extend([f"業者{k}", f"金額{k}"])
-
-                    # 保存
-                    with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
-                        writer = csv.writer(f)
-                        writer.writerow(header)
-                        writer.writerow(base_data + detail_fields + bidders_part)
+                # 現在のページの行を取得
+                rows_count = target_f.locator("#tBody tr").count()
+                
+                for i in range(rows_count):
+                    global_count += 1
+                    row_el = target_f.locator("#tBody tr").nth(i)
+                    cols = row_el.locator("td").all_text_contents()
+                    # 一覧の4項目
+                    base_data = [c.strip().replace('\n', ' ') for c in cols if c.strip()][0:4]
                     
-                    print(f"★すべての情報を保存しました。")
-                    detail_f.evaluate("jsBack();")
-                else:
-                    print("!! エラー: 詳細画面(PJC503Servlet)に到達できませんでした。")
-                    page.screenshot(path="debug_timeout.png")
-            else:
-                print("!! エラー: 一覧画面が表示されませんでした。")
-                page.screenshot(path="debug_no_list.png")
+                    # 詳細情報の初期化（空欄）
+                    detail_data = [""] * 27 # 7項目 + 業者20項目
+                    
+                    # --- 指定の番号（180件目）だけ詳細を取得 ---
+                    if global_count == target_index:
+                        print(f"★ターゲット発見: {global_count}件目。詳細を取得します...")
+                        target_f.evaluate(f"jsBidInfo({i});")
+                        
+                        # 詳細画面の出現を待機
+                        detail_f = None
+                        for _ in range(30):
+                            for f in page.frames:
+                                if "PJC503Servlet" in f.url:
+                                    detail_f = f
+                                    break
+                            if detail_f: break
+                            time.sleep(1)
+                        
+                        if detail_f:
+                            time.sleep(3)
+                            detail_txt = detail_f.evaluate("() => document.body.innerText")
+                            
+                            def get_v(label):
+                                m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
+                                return m.group(1).strip() if m else ""
+
+                            # 詳細7項目
+                            d_fields = [
+                                f'="{get_v("電子入札案件番号")}"',
+                                get_v("工事・業務名"),
+                                get_v("場所"),
+                                format_price(get_v("予定価格")),
+                                format_price(get_v("最低制限価格")),
+                                get_v("開札（予定）日"),
+                                get_v("状態")
+                            ]
+                            
+                            # 業者10名固定
+                            b_list = []
+                            try:
+                                bid_txt = detail_txt.split("摘要")[-1].split("備考")[0]
+                                matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_txt)
+                                valid = [[m[0].strip(), format_price(m[1])] for m in matches if not m[0].strip().isdigit()]
+                                for k in range(10): b_list.extend(valid[k] if k < len(valid) else ["", ""])
+                            except: b_list = [""] * 20
+                            
+                            detail_data = d_fields + b_list
+                            print(f"  -> 抽出完了: {base_data[2]}")
+                            
+                            # 一覧に戻る
+                            detail_f.evaluate("jsBack();")
+                            time.sleep(10) # 戻り待ち
+                    
+                    all_rows.append(base_data + detail_data)
+
+                # 「次頁」ボタンのチェック (成功コードそのまま)
+                try:
+                    next_btn = target_f.locator('input[name="btnNextPage"]')
+                    if next_btn.count() > 0 and next_btn.is_enabled():
+                        print("「次頁」をクリックします。")
+                        target_f.evaluate("jsNextPage();")
+                        page_num += 1
+                    else:
+                        print("最後のページです。")
+                        break
+                except:
+                    break
+
+            # 保存
+            if all_rows:
+                with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(header)
+                    writer.writerows(all_rows)
+                print(f"\n★完了！ 全 {len(all_rows)} 件を保存しました。ターゲット({target_index}件目)の詳細も含みます。")
 
         except Exception as e:
-            print(f"重大なエラー: {e}")
+            print(f"エラー: {e}")
         finally:
             browser.close()
 
