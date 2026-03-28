@@ -8,13 +8,13 @@ def main():
         page = context.new_page()
 
         try:
-            print("1. 検索実行（調査成功時の手順）...")
+            print("1. 検索条件画面を表示...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
             
-            # 検索ボタンを探して実行
+            print("2. 検索ボタンを探して実行...")
             search_started = False
             for _ in range(10): 
                 for f in page.frames:
@@ -22,49 +22,52 @@ def main():
                         btn = f.locator('input[name="btnSearch"]')
                         if btn.count() > 0:
                             f.evaluate("jsSearch();")
+                            print("★検索を実行しました。")
                             search_started = True
                             break
                     except: continue
                 if search_started: break
                 time.sleep(3)
 
-            print("2. 一覧の出現を待機...")
-            time.sleep(15)
+            print("3. 結果一覧の出現を待機中...")
+            target_f = None
+            for _ in range(10):
+                for f in page.frames:
+                    try:
+                        if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
+                            target_f = f
+                            break
+                    except: continue
+                if target_f: break
+                time.sleep(3)
             
-            # 一覧フレーム特定
-            list_f = next((f for f in page.frames if "PJC502Servlet" in f.url), None)
-            
-            if list_f:
-                print("3. 1件目の詳細ボタンをクリック...")
-                # 1件目のボタンを狙い撃ち
-                detail_btn = list_f.locator('img[onclick*="jsBidInfo(0)"]')
-                detail_btn.first.click()
+            if target_f:
+                print("4. 1行目の『入札情報』ボタン(jsBidInfo(0))をクリック...")
+                bid_info_btn = target_f.locator('img[onclick*="jsBidInfo(0)"], input[onclick*="jsBidInfo(0)"]')
                 
-                print("4. 詳細画面(PJC503)の出現を待機...")
-                time.sleep(10)
-                
-                detail_f = next((f for f in page.frames if "PJC503Servlet" in f.url), None)
-                if detail_f:
-                    print("★詳細画面を捕捉しました。")
+                if bid_info_btn.count() > 0:
+                    bid_info_btn.first.click()
+                    print("クリック完了。画面の切り替えを待ちます（15秒）...")
+                    time.sleep(15)
                     
-                    # 証拠保存（詳細画面）
-                    page.screenshot(path="debug_detail_open.png")
-                    
-                    print("5. 『戻る』ボタンの実行 (jsBack()を直接叩く)...")
-                    # 提供いただいたHTMLに基づき、jsBack()を確実に実行します
-                    detail_f.evaluate("jsBack();")
-                    
-                    print("6. 一覧への復帰を待機（10秒）...")
-                    time.sleep(10)
-                    
-                    # 一覧が再表示されたか確認
-                    if list_f.locator('img[onclick*="jsBidInfo(0)"]').count() > 0:
-                        print("★成功：一覧画面に無事戻れました。")
-                        page.screenshot(path="debug_returned_list.png")
+                    # --- 追加した変更点：詳細フレームから「戻る」を実行 ---
+                    print("5. 詳細画面(PJC503)から『戻る』を実行...")
+                    detail_f = next((f for f in page.frames if "PJC503Servlet" in f.url), None)
+                    if detail_f:
+                        # jsBack() を直接実行して一覧へ戻る
+                        detail_f.evaluate("jsBack();")
+                        print("jsBack() を実行しました。一覧への復帰を待ちます（15秒）...")
+                        time.sleep(15)
+
+                        # 一覧のボタンが再捕捉できるか確認
+                        if target_f.locator('img[onclick*="jsBidInfo(0)"]').count() > 0:
+                            print("★成功：一覧画面に戻りました。")
+                        else:
+                            print("!! 一覧に戻った形跡がありません。")
                     else:
-                        print("!! 戻ったはずですが、一覧のボタンが見当たりません。")
+                        print("!! 詳細フレーム(PJC503)が見つかりません。")
                 else:
-                    print("!! 詳細フレームが見つかりませんでした。")
+                    print("!! 詳細ボタンが見つかりませんでした。")
             else:
                 print("!! 一覧フレームが見つかりませんでした。")
 
