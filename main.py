@@ -1,5 +1,7 @@
 from playwright.sync_api import sync_playwright
 import time
+import csv
+import re
 
 def main():
     with sync_playwright() as p:
@@ -14,7 +16,6 @@ def main():
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
             
-            # --- 2. 検索実行 (全件取得で成功したリトライ方式) ---
             print("2. 検索ボタンを探して実行...")
             search_started = False
             for _ in range(10): 
@@ -30,10 +31,9 @@ def main():
                 if search_started: break
                 time.sleep(3)
 
-            # --- 3. 結果一覧の出現を待機 ---
             print("3. 結果一覧の出現を待機中...")
             target_f = None
-            for _ in range(10): # 30秒ほど粘る
+            for _ in range(10):
                 for f in page.frames:
                     try:
                         if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
@@ -44,43 +44,42 @@ def main():
                 time.sleep(3)
             
             if target_f:
+                # 一覧の1件目の基本情報を先に取得
+                row = target_f.locator("#tBody tr").first
+                base_data = [c.strip().replace('\n', ' ') for c in row.locator("td").all_text_contents() if c.strip()]
+
                 print("4. 1行目の『入札情報』ボタン(jsBidInfo(0))をクリック...")
-                bid_info_btn = target_f.locator('img[onclick*="jsBidInfo(0)"], input[onclick*="jsBidInfo(0)"]')
+                target_f.evaluate("jsBidInfo(0);")
+                print("クリック完了。15秒待機します...")
+                time.sleep(15)
                 
-                if bid_info_btn.count() > 0:
-                    bid_info_btn.first.click()
-                    print("クリック完了。画面の切り替えを待ちます（15秒）...")
-                    time.sleep(15)
+                # --- 詳細フレーム特定と抽出 ---
+                detail_f = next((f for f in page.frames if "PJC503Servlet" in f.url), None)
+                
+                if detail_f:
+                    print("★詳細フレーム捕捉。データを抽出します。")
+                    detail_text = detail_f.evaluate("() => document.body.innerText")
                     
-                    # --- 5. 遷移後の全フレーム調査と「戻る」実行 ---
-                    print("\n=== [遷移後のフレーム構造スキャン] ===")
-                    for i, f in enumerate(page.frames):
-                        try:
-                            res = f.evaluate('''() => {
-                                return {
-                                    url: window.location.href,
-                                    text: document.body.innerText.substring(0, 500).replace(/\\n/g, ' '),
-                                    tables: document.querySelectorAll('table').length
-                                }
-                            }''')
-                            print(f"Frame[{i}] URL: {res['url']}")
-                            print(f"  内容: {res['text']}...")
+                    # 正規表現で「場所」と「予定価格」を抜き出し
+                    place = re.search(r"場所\t([^\n]+)", detail_text)
+                    price = re.search(r"予定価格\t([^\n]+)", detail_text)
+                    
+                    base_data.append(place.group(1).strip() if place else "場所未取得")
+                    base_data.append(price.group(1).strip() if price else "価格未取得")
+                    
+                    # CSV保存
+                    with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(base_data)
+                    
+                    print(f"★完了！ 1件目のデータ（詳細付き）を保存しました: {base_data}")
 
-                            # PJC503Servlet（詳細画面）が見つかったら「戻る」を実行
-                            if "PJC503Servlet" in res['url']:
-                                print(f"★Frame[{i}]で『戻る』を実行します。")
-                                f.evaluate("jsBack();")
-                        except: continue
-
-                    # 証拠保存
-                    time.sleep(5) # 戻り待ち
-                    page.screenshot(path="debug_detail_frame.png", full_page=True)
-                    with open("debug_detail_frame.html", "w", encoding="utf-8") as file:
-                        file.write(page.content())
-                    print("\n調査ファイルを保存しました。")
+                    # 戻る操作の確認
+                    print("5. 一覧へ戻ります...")
+                    detail_f.evaluate("jsBack();")
+                    time.sleep(5)
                 else:
-                    print("!! 詳細ボタンが見つかりませんでした。")
-                    page.screenshot(path="debug_not_found.png")
+                    print("!! 詳細フレームが見つかりませんでした。")
             else:
                 print("!! 一覧フレームが見つかりませんでした。")
 
