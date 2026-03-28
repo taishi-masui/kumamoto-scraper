@@ -4,15 +4,13 @@ import csv
 import re
 
 def extract_detail(frame):
-    """詳細フレーム(PJC503Servlet)から項目を抽出"""
+    """詳細フレームから項目を抽出"""
     try:
         text = frame.evaluate("() => document.body.innerText")
-        # タブ区切りを想定した抽出
         place = re.search(r"場所\t([^\n]+)", text)
         price = re.search(r"予定価格\t([^\n]+)", text)
         status = re.search(r"状態\t([^\n]+)", text)
         period = re.search(r"工期\t([^\n]+)", text)
-        
         return [
             place.group(1).strip() if place else "未設定",
             price.group(1).strip() if price else "非公表",
@@ -20,7 +18,7 @@ def extract_detail(frame):
             period.group(1).strip() if period else "未記載"
         ]
     except:
-        return ["エラー", "", "", ""]
+        return ["抽出エラー", "", "", ""]
 
 def main():
     with sync_playwright() as p:
@@ -29,79 +27,70 @@ def main():
         page = context.new_page()
 
         try:
-            print("1. 検索条件画面を表示...")
+            print("1. 検索実行...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
             
-            print("2. 検索実行（リトライ付き）...")
-            search_started = False
-            for _ in range(10): 
+            # 検索リトライ
+            for _ in range(10):
                 for f in page.frames:
                     try:
-                        btn = f.locator('input[name="btnSearch"]')
-                        if btn.count() > 0:
+                        if f.locator('input[name="btnSearch"]').count() > 0:
                             f.evaluate("jsSearch();")
-                            search_started = True
                             break
                     except: continue
-                if search_started: break
-                time.sleep(3)
+                else: 
+                    time.sleep(3)
+                    continue
+                break
 
-            print("3. 結果一覧の出現を粘り強く待機...")
-            list_f = None
-            for _ in range(10): # 最大30秒待機
-                for f in page.frames:
-                    try:
-                        # 成功実績のある判定ロジック
-                        if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
-                            list_f = f
-                            break
-                    except: continue
-                if list_f: break
-                time.sleep(3)
-            
-            if list_f:
-                all_results = []
-                rows = list_f.locator("#tBody tr").all()
-                target_rows = rows[:10]
-                print(f"★一覧を捕捉。{len(target_rows)}件の詳細を取得開始...")
+            print("2. 一覧の出現を待機...")
+            time.sleep(15)
 
-                for i, r in enumerate(target_rows):
-                    cols = r.locator("td").all_text_contents()
-                    base_data = [c.strip().replace('\n', ' ') for c in cols if c.strip()]
+            all_results = []
+            for i in range(10): # 最初の10件
+                print(f"--- [{i+1}/10] 件目の処理開始 ---")
+                
+                # 毎回フレームを特定し直す（「戻る」後の安定のため）
+                list_f = next((f for f in page.frames if "PJC502Servlet" in f.url), None)
+                if not list_f: break
+
+                # 一覧の基本情報を取得
+                row = list_f.locator("#tBody tr").nth(i)
+                base_data = [c.strip().replace('\n', ' ') for c in row.locator("td").all_text_contents() if c.strip()]
+                
+                # 詳細へ移動
+                try:
+                    btn = row.locator('img[onclick^="jsBidInfo"]')
+                    btn.first.click()
+                    time.sleep(5) # 詳細読み込み待ち
                     
-                    if base_data:
-                        try:
-                            # jsBidInfo(index) ボタンを確実にクリック
-                            btn = r.locator(f'img[onclick*="jsBidInfo({i})"]')
-                            if btn.count() > 0:
-                                btn.first.click()
-                                time.sleep(5) # 切り替わりをしっかり待つ
-                                
-                                # 詳細が表示されるフレーム(PJC503Servlet)を探す
-                                detail_f = next((f for f in page.frames if "PJC503Servlet" in f.url), None)
-                                if detail_f:
-                                    detail_data = extract_detail(detail_f)
-                                    base_data.extend(detail_data)
-                                    print(f"  [{i+1}/10] 詳細取得成功: {base_data[2][:10]}...")
-                                else:
-                                    base_data.extend(["詳細フレーム未検出", "", "", ""])
-                        except Exception as e:
-                            print(f"  [{i+1}/10] エラー: {e}")
-                            base_data.extend(["エラー発生", "", "", ""])
+                    detail_f = next((f for f in page.frames if "PJC503Servlet" in f.url), None)
+                    if detail_f:
+                        # データ抽出
+                        detail_data = extract_detail(detail_f)
+                        base_data.extend(detail_data)
+                        
+                        # ★最重要：一覧に戻る
+                        print("  一覧へ戻ります...")
+                        detail_f.evaluate("jsBack();")
+                        time.sleep(5) # 一覧の再表示待ち
+                    else:
+                        base_data.extend(["詳細エラー", "", "", ""])
+                except Exception as e:
+                    print(f"  エラー: {e}")
+                    base_data.extend(["処理失敗", "", "", ""])
 
-                        all_results.append(base_data)
+                all_results.append(base_data)
 
-                # CSV保存
-                if all_results:
-                    with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
-                        writer = csv.writer(f)
-                        writer.writerows(all_results)
-                    print(f"★完了！ result.csv を生成しました。")
-            else:
-                print("!! 一覧フレームが時間内に見つかりませんでした。")
+            # 保存
+            if all_results:
+                with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerows(all_results)
+                print(f"★完了！ 10件分の詳細付きデータを保存しました。")
 
         except Exception as e:
             print(f"重大なエラー: {e}")
