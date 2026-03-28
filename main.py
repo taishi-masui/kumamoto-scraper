@@ -5,8 +5,7 @@ import re
 
 def format_currency(v):
     """数字を ¥1,234,567 の形式に整形する"""
-    if not v or v == "": return ""
-    # 数字のみを抽出
+    if not v: return ""
     num_str = re.sub(r'[^\d]', '', v)
     if not num_str: return ""
     return f"¥{int(num_str):,}"
@@ -24,18 +23,18 @@ def main():
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
             
+            # 検索リトライ
+            search_started = False
             for _ in range(10): 
                 for f in page.frames:
                     try:
-                        btn = f.locator('input[name="btnSearch"]')
-                        if btn.count() > 0:
+                        if f.locator('input[name="btnSearch"]').count() > 0:
                             f.evaluate("jsSearch();")
+                            search_started = True
                             break
                     except: continue
-                else:
-                    time.sleep(3)
-                    continue
-                break
+                if search_started: break
+                time.sleep(3)
 
             print("2. 一覧待機...")
             target_f = None
@@ -48,25 +47,37 @@ def main():
                 time.sleep(3)
             
             if target_f:
-                # 一覧の4項目（そのまま）
+                # 一覧情報確保
                 row_el = target_f.locator("#tBody tr").nth(0)
                 base_data = [c.inner_text().strip().replace('\n', ' ') for c in row_el.locator("td").all()][0:4]
 
-                print("3. 詳細取得...")
+                print("3. 詳細画面へ遷移中...")
                 target_f.evaluate("jsBidInfo(0);")
                 time.sleep(15)
                 
-                detail_f = next((f for f in page.frames if "PJC503Servlet" in f.url), None)
+                # --- 成功したスキャンロジックをそのまま使用 ---
+                detail_f = None
+                detail_txt = ""
+                for f in page.frames:
+                    try:
+                        # URLで判定（これが最も確実でした）
+                        if "PJC503Servlet" in f.url:
+                            detail_f = f
+                            detail_txt = f.evaluate("() => document.body.innerText")
+                            break
+                    except: continue
+
                 if detail_f:
-                    txt = detail_f.evaluate("() => document.body.innerText")
+                    print("★詳細フレーム捕捉。解析を開始します。")
                     
                     def get_v(label):
-                        m = re.search(rf"{label}\s*([^\n\r]+)", txt)
+                        m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
                         return m.group(1).strip() if m else ""
 
                     # 詳細基本7項目
+                    # 電子入札案件番号は ="000..." 形式で0落ちを防止
                     d_fields = [
-                        f'="{get_v("電子入札案件番号")}"', # エクセルで0落ちしないための形式
+                        f'="{get_v("電子入札案件番号")}"',
                         get_v("工事・業務名"),
                         get_v("場所"),
                         format_currency(get_v("予定価格")),
@@ -75,10 +86,10 @@ def main():
                         get_v("状態")
                     ]
 
-                    # 業者10社固定
+                    # 業者10社分固定
                     b_part = []
                     try:
-                        bid_txt = txt.split("摘要")[-1].split("備考")[0]
+                        bid_txt = detail_txt.split("摘要")[-1].split("備考")[0]
                         matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_txt)
                         valid = [[m[0].strip(), format_currency(m[1])] for m in matches if not m[0].strip().isdigit()]
                         for k in range(10):
@@ -86,10 +97,11 @@ def main():
                     except:
                         b_part = [""] * 20
 
-                    # ヘッダー
+                    # ヘッダー作成
                     h = ["施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法"]
                     h += ["電子入札案件番号", "工事・業務名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
-                    for k in range(1, 11): h.extend([f"業者{k}", f"金額{k}"])
+                    for k in range(1, 11):
+                        h.extend([f"業者{k}", f"金額{k}"])
 
                     # 保存
                     with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
@@ -97,11 +109,15 @@ def main():
                         writer.writerow(h)
                         writer.writerow(base_data + d_fields + b_part)
                     
-                    print(f"★完了！ result.csv を作成しました。エクセルでそのまま開けます。")
+                    print(f"★result.csv を作成しました。")
                     detail_f.evaluate("jsBack();")
+                else:
+                    print("!! 詳細フレームが見つかりませんでした。再度スキャンが必要です。")
+            else:
+                print("!! 一覧が見つかりませんでした。")
 
         except Exception as e:
-            print(f"エラー: {e}")
+            print(f"重大なエラー: {e}")
         finally:
             browser.close()
 
