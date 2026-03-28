@@ -8,12 +8,15 @@ def main():
         page = context.new_page()
 
         try:
-            print("1. 検索実行（成功ルート再現）...")
+            print("1. 検索条件画面を表示...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
             
+            # --- 2. 検索実行 (全件取得で成功したリトライ方式) ---
+            print("2. 検索ボタンを探して実行...")
+            search_started = False
             for _ in range(10): 
                 for f in page.frames:
                     try:
@@ -21,16 +24,16 @@ def main():
                         if btn.count() > 0:
                             f.evaluate("jsSearch();")
                             print("★検索を実行しました。")
+                            search_started = True
                             break
                     except: continue
-                else:
-                    time.sleep(3)
-                    continue
-                break
+                if search_started: break
+                time.sleep(3)
 
-            print("2. 一覧の出現を待機...")
+            # --- 3. 結果一覧の出現を待機 ---
+            print("3. 結果一覧の出現を待機中...")
             target_f = None
-            for _ in range(10):
+            for _ in range(10): # 30秒ほど粘る
                 for f in page.frames:
                     try:
                         if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
@@ -41,31 +44,43 @@ def main():
                 time.sleep(3)
             
             if target_f:
-                print("3. 1行目のボタンをクリック(jsBidInfo(0))...")
-                target_f.evaluate("jsBidInfo(0);")
-                print("15秒待機して詳細画面の生成を待ちます...")
-                time.sleep(15)
+                print("4. 1行目の『入札情報』ボタン(jsBidInfo(0))をクリック...")
+                bid_info_btn = target_f.locator('img[onclick*="jsBidInfo(0)"], input[onclick*="jsBidInfo(0)"]')
                 
-                # --- 核心部：詳細フレームを特定して戻るを実行 ---
-                print("4. 詳細フレーム(PJC503Servlet)を特定...")
-                detail_f = next((f for f in page.frames if "PJC503Servlet" in f.url), None)
-                
-                if detail_f:
-                    print(f"★詳細フレーム捕捉成功。URL: {detail_f.url}")
-                    # ご提示いただいた構成に基づき jsBack() を実行
-                    print("5. 戻るボタンの関数『jsBack();』を実行します...")
-                    detail_f.evaluate("jsBack();")
-                    
-                    print("一覧への復帰を確認中（15秒待機）...")
+                if bid_info_btn.count() > 0:
+                    bid_info_btn.first.click()
+                    print("クリック完了。画面の切り替えを待ちます（15秒）...")
                     time.sleep(15)
+                    
+                    # --- 5. 遷移後の全フレーム調査と「戻る」実行 ---
+                    print("\n=== [遷移後のフレーム構造スキャン] ===")
+                    for i, f in enumerate(page.frames):
+                        try:
+                            res = f.evaluate('''() => {
+                                return {
+                                    url: window.location.href,
+                                    text: document.body.innerText.substring(0, 500).replace(/\\n/g, ' '),
+                                    tables: document.querySelectorAll('table').length
+                                }
+                            }''')
+                            print(f"Frame[{i}] URL: {res['url']}")
+                            print(f"  内容: {res['text']}...")
 
-                    # target_f（一覧フレーム）のデータが生きているか確認
-                    if target_f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
-                        print("★大成功：一覧画面に戻ることに成功しました！")
-                    else:
-                        print("!! 戻りましたが、一覧のデータが消失または未描画です。")
+                            # PJC503Servlet（詳細画面）が見つかったら「戻る」を実行
+                            if "PJC503Servlet" in res['url']:
+                                print(f"★Frame[{i}]で『戻る』を実行します。")
+                                f.evaluate("jsBack();")
+                        except: continue
+
+                    # 証拠保存
+                    time.sleep(5) # 戻り待ち
+                    page.screenshot(path="debug_detail_frame.png", full_page=True)
+                    with open("debug_detail_frame.html", "w", encoding="utf-8") as file:
+                        file.write(page.content())
+                    print("\n調査ファイルを保存しました。")
                 else:
-                    print("!! 詳細フレーム(PJC503Servlet)が見つかりません。")
+                    print("!! 詳細ボタンが見つかりませんでした。")
+                    page.screenshot(path="debug_not_found.png")
             else:
                 print("!! 一覧フレームが見つかりませんでした。")
 
