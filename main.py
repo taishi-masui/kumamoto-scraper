@@ -3,13 +3,6 @@ import time
 import csv
 import re
 
-def format_currency(v):
-    """数字を ¥1,234,567 の形式に整形する"""
-    if not v: return ""
-    num_str = re.sub(r'[^\d]', '', v)
-    if not num_str: return ""
-    return f"¥{int(num_str):,}"
-
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -17,18 +10,19 @@ def main():
         page = context.new_page()
 
         try:
-            print("1. 検索実行...")
+            print("1. 検索条件画面を表示...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
             
-            # 検索リトライ
+            print("2. 検索実行...")
             search_started = False
             for _ in range(10): 
                 for f in page.frames:
                     try:
-                        if f.locator('input[name="btnSearch"]').count() > 0:
+                        btn = f.locator('input[name="btnSearch"]')
+                        if btn.count() > 0:
                             f.evaluate("jsSearch();")
                             search_started = True
                             break
@@ -36,88 +30,119 @@ def main():
                 if search_started: break
                 time.sleep(3)
 
-            print("2. 一覧待機...")
-            target_f = None
-            for _ in range(10):
-                for f in page.frames:
-                    if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
-                        target_f = f
-                        break
-                if target_f: break
-                time.sleep(3)
-            
-            if target_f:
-                # 一覧情報確保
-                row_el = target_f.locator("#tBody tr").nth(0)
-                base_data = [c.inner_text().strip().replace('\n', ' ') for c in row_el.locator("td").all()][0:4]
+            # 結果格納用
+            all_data_rows = []
+            header = []
 
-                print("3. 詳細画面へ遷移中...")
-                target_f.evaluate("jsBidInfo(0);")
+            # --- 10件ループ開始 ---
+            for i in range(10):
+                print(f"\n--- [{i+1}/10] 件目の処理を開始 ---")
+                
+                print("3. 結果一覧の出現を待機...")
+                target_f = None
+                for _ in range(10):
+                    for f in page.frames:
+                        try:
+                            if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
+                                target_f = f
+                                break
+                        except: continue
+                    if target_f: break
+                    time.sleep(3)
+                
+                if not target_f:
+                    print("!! 一覧が見つからないため終了します。")
+                    break
+
+                # --- 一覧情報を取得 ---
+                rows = target_f.locator("#tBody tr")
+                if rows.count() <= i:
+                    print(f"!! {i+1}件目のデータがないため終了します。")
+                    break
+                    
+                row_el = rows.nth(i)
+                all_cells = [c.inner_text().strip().replace('\n', ' ') for c in row_el.locator("td").all()]
+                base_data = all_cells[0:4] 
+
+                print(f"4. 詳細ボタン(jsBidInfo({i}))をクリック...")
+                target_f.evaluate(f"jsBidInfo({i});")
                 time.sleep(15)
                 
-                # --- 成功したスキャンロジックをそのまま使用 ---
-                detail_f = None
+                # --- 5. 遷移後の全フレーム調査 ---
+                print("=== [遷移後のフレーム構造スキャン] ===")
                 detail_txt = ""
-                for f in page.frames:
+                detail_f = None
+                for frame_idx, f in enumerate(page.frames):
                     try:
-                        # URLで判定（これが最も確実でした）
-                        if "PJC503Servlet" in f.url:
+                        res = f.evaluate("() => ({ url: window.location.href, text: document.body.innerText })")
+                        if "PJC503Servlet" in res['url']:
                             detail_f = f
-                            detail_txt = f.evaluate("() => document.body.innerText")
-                            break
+                            detail_txt = res['text']
                     except: continue
 
                 if detail_f:
-                    print("★詳細フレーム捕捉。解析を開始します。")
+                    print("★詳細情報の解析...")
                     
                     def get_v(label):
                         m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
-                        return m.group(1).strip() if m else ""
+                        if not m: return ""
+                        v = m.group(1).strip()
+                        if "価格" in label:
+                            v = v.split('(')[0].replace('円', '').replace(',', '').strip()
+                        return v
 
                     # 詳細基本7項目
-                    # 電子入札案件番号は ="000..." 形式で0落ちを防止
-                    d_fields = [
-                        f'="{get_v("電子入札案件番号")}"',
-                        get_v("工事・業務名"),
-                        get_v("場所"),
-                        format_currency(get_v("予定価格")),
-                        format_currency(get_v("最低制限価格")),
-                        get_v("開札（予定）日"),
-                        get_v("状態")
+                    detail_fields = [
+                        get_v("電子入札案件番号"), get_v("工事・業務名"), get_v("場所"),
+                        get_v("予定価格"), get_v("最低制限価格"), get_v("開札（予定）日"), get_v("状態")
                     ]
 
-                    # 業者10社分固定
-                    b_part = []
+                    # 入札結果（業者10社分固定）
+                    bidders_part = []
                     try:
                         bid_txt = detail_txt.split("摘要")[-1].split("備考")[0]
                         matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_txt)
-                        valid = [[m[0].strip(), format_currency(m[1])] for m in matches if not m[0].strip().isdigit()]
+                        valid_bidders = []
+                        for name, price in matches:
+                            n = name.strip()
+                            if n and not n.replace(',','').isdigit():
+                                valid_bidders.append([n, price.replace(',', '').strip()])
+                        
                         for k in range(10):
-                            b_part.extend(valid[k] if k < len(valid) else ["", ""])
+                            if k < len(valid_bidders):
+                                bidders_part.extend(valid_bidders[k])
+                            else:
+                                bidders_part.extend(["", ""])
                     except:
-                        b_part = [""] * 20
+                        bidders_part = [""] * 20
 
-                    # ヘッダー作成
-                    h = ["施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法"]
-                    h += ["電子入札案件番号", "工事・業務名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
-                    for k in range(1, 11):
-                        h.extend([f"業者{k}", f"金額{k}"])
+                    # ヘッダー作成（初回のみ）
+                    if not header:
+                        header = ["施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法"]
+                        header += ["電子入札案件番号", "工事・業務名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
+                        for k in range(1, 11):
+                            header.extend([f"業者{k}", f"金額{k}"])
 
-                    # 保存
-                    with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
-                        writer = csv.writer(f)
-                        writer.writerow(h)
-                        writer.writerow(base_data + d_fields + b_part)
+                    # 1行分をリストに追加
+                    all_data_rows.append(base_data + detail_fields + bidders_part)
                     
-                    print(f"★result.csv を作成しました。")
+                    print("★保存完了。戻ります。")
                     detail_f.evaluate("jsBack();")
+                    # 戻った後の描画待ち
+                    time.sleep(10)
                 else:
-                    print("!! 詳細フレームが見つかりませんでした。再度スキャンが必要です。")
-            else:
-                print("!! 一覧が見つかりませんでした。")
+                    print("!! 詳細フレームが見つかりませんでした。")
+
+            # --- 全件終了後にCSV書き出し ---
+            if all_data_rows:
+                with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(header)
+                    writer.writerows(all_data_rows)
+                print(f"\n★全 {len(all_data_rows)} 件の保存が完了しました。")
 
         except Exception as e:
-            print(f"重大なエラー: {e}")
+            print(f"エラー: {e}")
         finally:
             browser.close()
 
