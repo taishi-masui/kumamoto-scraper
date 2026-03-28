@@ -1,6 +1,17 @@
 from playwright.sync_api import sync_playwright
 import time
 import csv
+import os
+
+def save_debug(page, name):
+    """デバッグ用のスクリーンショットとHTMLを保存する関数"""
+    try:
+        page.screenshot(path=f"debug_{name}.png", full_page=True)
+        with open(f"debug_{name}.html", "w", encoding="utf-8") as f:
+            f.write(page.content())
+        print(f"--- デバッグ保存完了: {name} ---")
+    except Exception as e:
+        print(f"デバッグ保存失敗({name}): {e}")
 
 def main():
     with sync_playwright() as p:
@@ -13,30 +24,33 @@ def main():
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
             
+            # メニューから検索画面呼び出し
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
             time.sleep(10)
+            save_debug(page, "01_input_page")
 
             print("2. 表示件数を100件に切り替え中...")
-            count_set_success = False
             for f in page.frames:
                 try:
-                    # 確定した名前 'ListCount' で検索
+                    # 'ListCount' を探し、値を100にしてchangeイベントを発火
                     target_select = f.locator('select[name="ListCount"]')
                     if target_select.count() > 0:
-                        # 値 '100' を選択
-                        target_select.select_option("100")
-                        print(f"★フレーム '{f.name}' にて表示件数を100件に設定しました。")
-                        count_set_success = True
+                        # JavaScriptで確実に値をセットし、イベントを飛ばす
+                        f.evaluate('''() => {
+                            const sel = document.querySelector('select[name="ListCount"]');
+                            sel.value = "100";
+                            sel.dispatchEvent(new Event('change', { bubbles: true }));
+                        }''')
+                        print(f"★フレーム '{f.name}' にて100件設定を実行しました。")
                         break
-                except:
-                    continue
-
-            if not count_set_success:
-                print("!! 表示件数の選択窓(ListCount)が見つかりませんでした。")
+                except: continue
+            
+            time.sleep(3)
+            save_debug(page, "02_after_selection")
 
             print("3. 検索実行...")
-            # 全フレームに対して jsSearch を実行
+            # 全フレームに対して jsSearch を実行（エラーは無視）
             page.evaluate('''() => {
                 const trigger = (w) => {
                     try { if (typeof w.jsSearch === "function") w.jsSearch(); } catch (e) {}
@@ -45,20 +59,17 @@ def main():
                 trigger(window);
             }''')
             
-            print("4. 結果の出現を監視中...")
-            found_data = False
+            print("4. 結果の出現を監視中（最大40秒）...")
+            scraped_data = []
             start_time = time.time()
             
-            while time.time() - start_time < 30:
+            while time.time() - start_time < 40:
                 for f in page.frames:
                     try:
-                        # 以前成功した #tBody tr を探す
                         row_count = f.evaluate("() => document.querySelectorAll('#tBody tr').length")
                         if row_count > 0:
-                            print(f"★データ捕捉！ {row_count} 件の表示を確認しました。")
-                            
+                            print(f"★データ捕捉！ {row_count} 件を確認。")
                             rows = f.locator("#tBody tr").all()
-                            scraped_data = []
                             for r in rows:
                                 cols = r.locator("td").all_text_contents()
                                 clean_row = [c.strip().replace('\\n', ' ').replace('\\t', ' ') for c in cols if c.strip()]
@@ -69,15 +80,19 @@ def main():
                                     writer = csv.writer(f_csv)
                                     writer.writerows(scraped_data)
                                 print(f"--- result.csv に {len(scraped_data)} 件保存しました ---")
-                                found_data = True
+                                save_debug(page, "03_result_success")
                                 break
-                    except:
-                        continue
-                if found_data: break
-                time.sleep(2)
+                    except: continue
+                if scraped_data: break
+                time.sleep(3)
+
+            if not scraped_data:
+                print("!! 最終的にデータが見つかりませんでした。")
+                save_debug(page, "04_result_not_found")
 
         except Exception as e:
-            print(f"エラー発生: {e}")
+            print(f"実行中に重大なエラー: {e}")
+            save_debug(page, "99_fatal_error")
         finally:
             browser.close()
 
