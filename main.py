@@ -93,29 +93,42 @@ def main():
                             print(f"[LOG] jsBidInfo({i}) を実行します...")
                             
                             target_f.evaluate(f"jsBidInfo({i});")
-                            print("[LOG] 詳細画面の描画を待機します(15秒)...")
-                            time.sleep(15) # 実績コードの待機時間
+                            print("[LOG] 詳細画面の描画を待機します(最大60秒)...")
                             
-                            # 詳細フレームの特定 (実績コードそのまま)
+                            # 【新規追加要素】15秒固定ではなく、最大60秒間サーバーの応答(Loading.jspの終了)を待つ
                             detail_f = None
                             detail_txt = ""
-                            print("[LOG] 現在の全フレームURLを確認:")
-                            for idx_f, f_frame in enumerate(page.frames):
-                                print(f"      Frame[{idx_f}]: {f_frame.url}")
-                                if "PJC503Servlet" in f_frame.url:
-                                    detail_f = f_frame
+                            for sec in range(1, 61):
+                                time.sleep(1)
+                                for f_frame in page.frames:
+                                    if "PJC503Servlet" in f_frame.url:
+                                        detail_f = f_frame
+                                        break
+                                
+                                if detail_f:
                                     try:
-                                        detail_txt = detail_f.evaluate("() => document.body.innerText")
-                                        print(f"[LOG] 詳細フレーム(PJC503Servlet)特定成功。テキスト長: {len(detail_txt)}文字")
-                                    except Exception as e:
-                                        print(f"[LOG] 詳細テキスト取得エラー: {e}")
+                                        temp_txt = detail_f.evaluate("() => document.body.innerText")
+                                        if len(temp_txt) > 50: # 十分なテキストがあれば描画完了とみなす
+                                            detail_txt = temp_txt
+                                            print(f"[LOG] -> {sec}秒で詳細フレーム(PJC503Servlet)を捕捉しました。")
+                                            break
+                                    except:
+                                        pass
+                                    detail_f = None # テキストが取れるまではリトライ
+                                    
+                                if sec % 10 == 0:
+                                    print(f"[LOG]    ...待機中 ({sec}秒経過)")
+                                    if any("Loading.jsp" in f.url for f in page.frames):
+                                        print("[LOG]    (※サイトは現在「読込中(Loading)」です。サーバーからの応答を待っています)")
                             
                             if detail_f and detail_txt:
                                 print("[LOG] 詳細テキストの解析を開始...")
+                                time.sleep(2) # 念のための安定待ち
+                                
+                                # (実績コードそのままの正規表現抽出ロジック)
                                 def get_v(label):
                                     m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
                                     res = m.group(1).strip() if m else ""
-                                    print(f"      抽出[{label}]: {res}")
                                     return res
 
                                 case_no = get_v("電子入札案件番号")
@@ -132,13 +145,11 @@ def main():
                                 b_list = []
                                 try:
                                     bid_txt = detail_txt.split("摘要")[-1].split("備考")[0]
-                                    print(f"[LOG] 入札情報ブロック抽出成功 (文字数: {len(bid_txt)}文字)")
                                     matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_txt)
                                     for m in matches:
                                         name = m[0].strip()
                                         if name and not name.isdigit():
                                             b_list.append([name, format_price(m[1])])
-                                            print(f"      業者抽出: {name} / {format_price(m[1])}")
                                 except Exception as e:
                                     print(f"[LOG] 業者抽出エラー: {e}")
                                     
@@ -152,25 +163,24 @@ def main():
                                 # 戻る処理 (実績コードそのまま)
                                 print("[LOG] jsBack() を実行して一覧に戻ります...")
                                 detail_f.evaluate("jsBack();")
-                                print("[LOG] 一覧への戻りを待機(15秒)...")
-                                time.sleep(15)
+                                print("[LOG] 一覧への戻りを待機(最大30秒)...")
                                 
-                                # ※超重要：戻った後、フレームが古いままエラーにならないよう再認識させる
-                                print("[LOG] 戻り後のフレーム再取得を実施...")
+                                # 【新規追加要素】一覧に戻る際も固定待ちではなく動的に待つ
                                 target_f = None
-                                for _ in range(5):
+                                for sec in range(1, 31):
+                                    time.sleep(1)
                                     for f in page.frames:
                                         try:
                                             if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
                                                 target_f = f
-                                                print(f"[LOG] 一覧フレーム再特定成功: {f.url}")
                                                 break
                                         except: continue
-                                    if target_f: break
-                                    time.sleep(3)
+                                    if target_f:
+                                        print(f"[LOG] -> {sec}秒後に一覧フレームへ復帰しました。")
+                                        time.sleep(3) # 安定待ち
+                                        break
                             else:
-                                print("[LOG] !! 詳細フレームが見つからなかった、またはテキストが空です。")
-                                page.screenshot(path="debug_detail_fail.png")
+                                print("[LOG] !! 60秒待機しましたが詳細フレームが開かない、または読込が終わりませんでした。")
                             print(f"[LOG] ===========================================")
 
                         all_data.append(base_data + detail_data)
@@ -210,7 +220,6 @@ def main():
 
         except Exception as e:
             print(f"[LOG] 重大なエラー: {e}")
-            page.screenshot(path="debug_fatal_error.png")
         finally:
             browser.close()
 
