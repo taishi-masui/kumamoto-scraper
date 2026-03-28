@@ -8,68 +8,76 @@ def main():
         page = context.new_page()
 
         try:
-            print("1. 検索実行（デフォルト件数）...")
+            print("1. 検索条件画面を表示...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
-            time.sleep(10)
-
-            # 検索実行
-            for f in page.frames:
-                try:
-                    if f.locator('input[name="btnSearch"]').count() > 0:
-                        f.evaluate("jsSearch();")
-                        break
-                except: continue
             
-            print("2. 結果一覧の出現を待機...")
-            time.sleep(15)
+            # --- 2. 検索実行 (全件取得で成功したリトライ方式) ---
+            print("2. 検索ボタンを探して実行...")
+            search_started = False
+            for _ in range(10): 
+                for f in page.frames:
+                    try:
+                        btn = f.locator('input[name="btnSearch"]')
+                        if btn.count() > 0:
+                            f.evaluate("jsSearch();")
+                            print("★検索を実行しました。")
+                            search_started = True
+                            break
+                    except: continue
+                if search_started: break
+                time.sleep(3)
 
+            # --- 3. 結果一覧の出現を待機 ---
+            print("3. 結果一覧の出現を待機中...")
             target_f = None
-            for f in page.frames:
-                try:
-                    if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
-                        target_f = f
-                        break
-                except: continue
+            for _ in range(10): # 30秒ほど粘る
+                for f in page.frames:
+                    try:
+                        if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
+                            target_f = f
+                            break
+                    except: continue
+                if target_f: break
+                time.sleep(3)
             
             if target_f:
-                print("3. 1行目の『入札情報』ボタン(jsBidInfo(0))をクリック...")
-                # 確実に1行目のimgタグを特定してクリック
-                bid_info_btn = target_f.locator('img[onclick*="jsBidInfo(0)"]')
+                print("4. 1行目の『入札情報』ボタン(jsBidInfo(0))をクリック...")
+                # onclick属性にjsBidInfo(0)を含む要素を探す
+                bid_info_btn = target_f.locator('img[onclick*="jsBidInfo(0)"], input[onclick*="jsBidInfo(0)"]')
                 
                 if bid_info_btn.count() > 0:
-                    bid_info_btn.click()
-                    print("クリック完了。詳細画面への切り替えを待ちます（15秒）...")
+                    bid_info_btn.first.click()
+                    print("クリック完了。画面の切り替えを待ちます（15秒）...")
                     time.sleep(15)
                     
-                    # 画面が切り替わった後の全フレームを再スキャン
+                    # --- 5. 遷移後の全フレーム調査 ---
                     print("\n=== [遷移後のフレーム構造スキャン] ===")
                     for i, f in enumerate(page.frames):
                         try:
-                            # フォームやテーブルの数を調査
-                            info = f.evaluate('''() => {
+                            res = f.evaluate('''() => {
                                 return {
                                     url: window.location.href,
-                                    text: document.body.innerText.substring(0, 300).replace(/\\n/g, ' '),
-                                    tables: document.querySelectorAll('table').length,
-                                    inputs: document.querySelectorAll('input').length
+                                    text: document.body.innerText.substring(0, 500).replace(/\\n/g, ' '),
+                                    tables: document.querySelectorAll('table').length
                                 }
                             }''')
-                            print(f"Frame[{i}] URL: {info['url']}")
-                            print(f"  内容冒頭: {info['text']}...")
-                            print(f"  テーブル数: {info['tables']} | 入力要素数: {info['inputs']}")
+                            print(f"Frame[{i}] URL: {res['url']}")
+                            print(f"  内容: {res['text']}...")
                         except: continue
 
-                    # 証拠保存（この画像に詳細画面が映っているはずです）
+                    # 証拠保存
                     page.screenshot(path="debug_detail_frame.png", full_page=True)
                     with open("debug_detail_frame.html", "w", encoding="utf-8") as file:
                         file.write(page.content())
+                    print("\n調査ファイルを保存しました。")
                 else:
-                    print("!! ボタンが見つかりませんでした。")
+                    print("!! 詳細ボタンが見つかりませんでした。")
+                    page.screenshot(path="debug_not_found.png")
             else:
-                print("!! 一覧が見つかりませんでした。")
+                print("!! 一覧フレームが見つかりませんでした。")
 
         except Exception as e:
             print(f"重大なエラー: {e}")
