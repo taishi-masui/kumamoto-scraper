@@ -8,14 +8,12 @@ def main():
         page = context.new_page()
 
         try:
-            print("1. 検索条件画面を表示...")
+            print("1. 検索実行（成功ルート再現）...")
             page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0100", wait_until="networkidle")
             time.sleep(5)
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
             
-            print("2. 検索ボタンを探して実行...")
-            search_started = False
             for _ in range(10): 
                 for f in page.frames:
                     try:
@@ -23,13 +21,14 @@ def main():
                         if btn.count() > 0:
                             f.evaluate("jsSearch();")
                             print("★検索を実行しました。")
-                            search_started = True
                             break
                     except: continue
-                if search_started: break
-                time.sleep(3)
+                else:
+                    time.sleep(3)
+                    continue
+                break
 
-            print("3. 結果一覧の出現を待機中...")
+            print("2. 一覧の出現を待機...")
             target_f = None
             for _ in range(10):
                 for f in page.frames:
@@ -42,37 +41,31 @@ def main():
                 time.sleep(3)
             
             if target_f:
-                print("4. 1行目の『入札情報』ボタン(jsBidInfo(0))をクリック...")
-                bid_info_btn = target_f.locator('img[onclick*="jsBidInfo(0)"], input[onclick*="jsBidInfo(0)"]')
+                print("3. 1行目のボタンをクリック(jsBidInfo(0))...")
+                target_f.evaluate("jsBidInfo(0);")
+                print("15秒待機して詳細画面の生成を待ちます...")
+                time.sleep(15)
                 
-                if bid_info_btn.count() > 0:
-                    bid_info_btn.first.click()
-                    print("クリック完了。詳細フレームの生成を待ちます...")
+                # --- 核心部：詳細フレームを特定して戻るを実行 ---
+                print("4. 詳細フレーム(PJC503Servlet)を特定...")
+                detail_f = next((f for f in page.frames if "PJC503Servlet" in f.url), None)
+                
+                if detail_f:
+                    print(f"★詳細フレーム捕捉成功。URL: {detail_f.url}")
+                    # ご提示いただいた構成に基づき jsBack() を実行
+                    print("5. 戻るボタンの関数『jsBack();』を実行します...")
+                    detail_f.evaluate("jsBack();")
                     
-                    # --- 変更点：PJC503Servletが出るまで粘り強く待機 ---
-                    detail_f = None
-                    for _ in range(10):
-                        time.sleep(3)
-                        detail_f = next((f for f in page.frames if "PJC503Servlet" in f.url), None)
-                        if detail_f: break
-                    
-                    if detail_f:
-                        print(f"★詳細フレーム捕捉成功: {detail_f.url}")
-                        print("5. 『戻る』を実行 (jsBack)...")
-                        detail_f.evaluate("jsBack();")
-                        
-                        print("一覧への復帰を確認中（15秒待機）...")
-                        time.sleep(15)
+                    print("一覧への復帰を確認中（15秒待機）...")
+                    time.sleep(15)
 
-                        # target_f（一覧フレーム）が有効か再確認
-                        if target_f.locator('img[onclick*="jsBidInfo(0)"]').count() > 0:
-                            print("★成功：一覧画面に戻りました。")
-                        else:
-                            print("!! 一覧のボタンが見当たりません。")
+                    # target_f（一覧フレーム）のデータが生きているか確認
+                    if target_f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
+                        print("★大成功：一覧画面に戻ることに成功しました！")
                     else:
-                        print("!! 詳細フレーム(PJC503)が時間内に生成されませんでした。")
+                        print("!! 戻りましたが、一覧のデータが消失または未描画です。")
                 else:
-                    print("!! 詳細ボタンが見つかりませんでした。")
+                    print("!! 詳細フレーム(PJC503Servlet)が見つかりません。")
             else:
                 print("!! 一覧フレームが見つかりませんでした。")
 
