@@ -7,6 +7,7 @@ import os
 import urllib.request
 
 def format_price(v):
+    """数字を ¥1,234,567 の形式に整形する"""
     if not v: return ""
     num_str = re.sub(r'[^\d]', '', v.split('(')[0])
     if not num_str: return ""
@@ -30,7 +31,7 @@ def send_to_spreadsheet(data):
         print(f"スプレッドシート送信エラー: {e}")
 
 def main():
-    # 取得対象
+    # 取得対象（実績のある2地区＋南小国町）
     targets = [
         {"name": "熊本県", "code": "0100"},
         {"name": "熊本市", "code": "0200"},
@@ -38,10 +39,7 @@ def main():
     ]
     
     all_data_rows = []
-    # ヘッダー定義
-    header = ["自治体名", "施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法",
-              "電子入札案件番号", "詳細工事名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
-    for k in range(1, 11): header.extend([f"業者{k}", f"金額{k}"])
+    header = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -54,15 +52,15 @@ def main():
                 t_code = target["code"]
                 print(f"--- {t_name} の取得を開始します ---")
 
-                # 1. アクセス
+                # 1. サイトアクセス
                 page.goto(f"https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no={t_code}", wait_until="networkidle")
                 time.sleep(5)
                 
-                # 2. メニュー
+                # 2. メニュー表示
                 menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
                 menu_f.evaluate("jsLink(1,1);")
                 
-                # 3. 検索
+                # 3. 検索実行
                 search_started = False
                 for _ in range(10): 
                     for f in page.frames:
@@ -70,6 +68,8 @@ def main():
                             sel = f.locator('select[name="ListCount"]')
                             if sel.count() > 0:
                                 sel.select_option("100")
+                            btn = f.locator('input[name="btnSearch"]')
+                            if btn.count() > 0:
                                 f.evaluate("jsSearch();")
                                 search_started = True
                                 break
@@ -77,9 +77,9 @@ def main():
                     if search_started: break
                     time.sleep(3)
 
-                # 4. 一覧
+                # 4. 一覧から取得
                 target_f = None
-                for _ in range(15):
+                for _ in range(10):
                     for f in page.frames:
                         try:
                             if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
@@ -87,62 +87,88 @@ def main():
                                 break
                         except: continue
                     if target_f: break
-                    time.sleep(2)
+                    time.sleep(3)
                 
                 if not target_f:
-                    print(f"  -> {t_name}: データなし。")
+                    print(f"  -> {t_name}: データが見つかりませんでした")
                     continue
 
-                # 各地区 1件 テスト取得
-                rows = target_f.locator("#tBody tr")
-                rows_count = rows.count()
-                
-                for i in range(min(1, rows_count)):
-                    # 一覧のデータを0〜3列目で固定取得
-                    tds = [c.inner_text().strip().replace('\n', ' ') for c in rows.nth(i).locator("td").all()]
-                    base_data = tds[0:4] if len(tds) >= 4 else (tds + [""]*4)[:4]
+                # テスト用に各地区 1件 のみ取得
+                rows_count = 1 
+                for i in range(rows_count):
+                    rows = target_f.locator("#tBody tr")
+                    row_el = rows.nth(i)
+                    all_cells = [c.inner_text().strip().replace('\n', ' ') for c in row_el.locator("td").all()]
+                    base_data = all_cells[0:4] 
 
-                    # 詳細画面へ
+                    # 詳細表示
                     target_f.evaluate(f"jsBidInfo({i});")
                     time.sleep(15)
                     
+                    detail_txt = ""
                     detail_f = None
                     for f in page.frames:
-                        if "PJC503Servlet" in f.url:
-                            detail_f = f
-                            break
+                        try:
+                            res = f.evaluate("() => ({ url: window.location.href, text: document.body.innerText })")
+                            if "PJC503Servlet" in res['url']:
+                                detail_f = f
+                                detail_txt = res['text']
+                        except: continue
 
                     if detail_f:
-                        txt = detail_f.evaluate("() => document.body.innerText")
                         def get_v(label):
-                            m = re.search(rf"{label}\s*([^\n\r]+)", txt)
-                            return m.group(1).strip() if m else ""
+                            m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
+                            if not m: return ""
+                            return m.group(1).strip()
 
                         case_id = get_v("電子入札案件番号")
                         detail_fields = [
-                            f'="{case_id}"', get_v("工事・業務名"), get_v("場所"),
-                            format_price(get_v("予定価格")), format_price(get_v("最低制限価格")),
-                            get_v("開札（予定）日"), get_v("状態")
+                            f'="{case_id}"', 
+                            get_v("工事・業務名"), 
+                            get_v("場所"),
+                            format_price(get_v("予定価格")), 
+                            format_price(get_v("最低制限価格")), 
+                            get_v("開札（予定）日"), 
+                            get_v("状態")
                         ]
-                        
+
                         bidders_part = []
                         try:
-                            bid_txt = txt.split("摘要")[-1].split("備考")[0]
+                            bid_txt = detail_txt.split("摘要")[-1].split("備考")[0]
                             matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_txt)
-                            valid_bidders = [[n.strip(), format_price(p)] for n, p in matches if not n.strip().replace(',','').isdigit()]
+                            valid_bidders = []
+                            for name, price in matches:
+                                n = name.strip()
+                                if n and not n.replace(',','').isdigit():
+                                    valid_bidders.append([n, format_price(price)])
                             for k in range(10):
-                                bidders_part.extend(valid_bidders[k] if k < len(valid_bidders) else ["", ""])
-                        except: bidders_part = [""] * 20
+                                if k < len(valid_bidders): bidders_part.extend(valid_bidders[k])
+                                else: bidders_part.extend(["", ""])
+                        except:
+                            bidders_part = [""] * 20
 
-                        # 全データを結合
+                        if not header:
+                            header = ["自治体名", "施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法"]
+                            header += ["電子入札案件番号", "工事・業務名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
+                            for k in range(1, 11):
+                                header.extend([f"業者{k}", f"金額{k}"])
+
+                        # 自治体名(t_name)を先頭に追加して保存
                         all_data_rows.append([t_name] + base_data + detail_fields + bidders_part)
-                        print(f"★ {t_name}: 取得完了")
+                        print(f"★ {t_name}: 1件完了")
                         
                         detail_f.evaluate("jsBack();")
                         time.sleep(10)
 
-            # 最後にまとめてスプレッドシートへ送信
+            # 5. 全地区終了後に送信
             if all_data_rows:
+                # バックアップCSV作成
+                with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(header)
+                    writer.writerows(all_data_rows)
+                
+                # スプレッドシートへ送信
                 print(f"\nスプレッドシートに {len(all_data_rows)} 件送信中...")
                 send_to_spreadsheet(all_data_rows)
 
