@@ -127,7 +127,7 @@ def main():
                         time.sleep(10)
 
             # 最後にデータがあれば送信（ヘッダーなしでデータ行のみ飛ぶ）
-            if all_data_rows) :
+            if all_data_rows :
                 send_to_spreadsheet(all_data_rows)
 
         except Exception as e:
