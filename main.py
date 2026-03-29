@@ -30,13 +30,14 @@ def main():
         {"name": "南小国町", "code": "0423"}
     ]
     
-    # --- 修正箇所：まず最初にヘッダー（項目名）をリストに入れる ---
+    # --- 修正箇所：項目名（ヘッダー）を作成 ---
     header = ["自治体名", "施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法",
               "電子入札案件番号", "詳細工事名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
-    for k in range(1, 11): header.extend([f"業者{k}", f"金額{k}"])
+    for k in range(1, 11): 
+        header.extend([f"業者{k}", f"金額{k}"])
     
-    # 送信用リスト（ヘッダーは入れず、データのみにする）
-    all_data_rows = [] 
+    # 最初にヘッダーを入れた状態でリストを開始する
+    all_data_rows = [header] 
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -126,8 +127,8 @@ def main():
                         detail_f.evaluate("jsBack();")
                         time.sleep(10)
 
-            # 最後にデータがあれば送信（ヘッダーなしでデータ行のみ飛ぶ）
-            if all_data_rows :
+            # 項目名(header)を含んだ状態で送信する
+            if len(all_data_rows) > 1:
                 send_to_spreadsheet(all_data_rows)
 
         except Exception as e:
