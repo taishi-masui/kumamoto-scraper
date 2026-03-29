@@ -25,15 +25,17 @@ jobs:
 
       - name: 実行
         run: python main.py
+        env:
+          # 【重要】GitHub SecretsからGASのURLを読み込み、Pythonの環境変数にセットします
+          GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
 
-      # ここを修正：生成されたCSVとデバッグ用画像をすべて保存するようにします
       - name: 成果物とデバッグ情報の保存
         if: always() 
         uses: actions/upload-artifact@v4
         with:
-          name: kumamoto-bid-results  # アーティファクトの名前
+          name: kumamoto-bid-results
           path: |
             result.csv
             debug_after_click.png
             debug_result_view.png
-          if-no-files-found: warn # ファイルがなくてもエラーにせず警告を出す
+          if-no-files-found: warn
