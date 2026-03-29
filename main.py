@@ -17,8 +17,8 @@ def main():
         page = context.new_page()
 
         try:
-            # 【変更点】kikan_no を 0423 (南小国町) に変更
-            page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0423", wait_until="networkidle")
+            # 【変更点】kikan_no を 0200 (熊本市) に変更
+            page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no=0200", wait_until="networkidle")
             time.sleep(5)
             menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
             menu_f.evaluate("jsLink(1,1);")
@@ -143,8 +143,8 @@ def main():
                     break
 
             if all_data_rows:
-                # 【便宜上、ファイル名を区別しやすくしています】
-                with open('result_minamioguni.csv', 'w', encoding='utf-8-sig', newline='') as f:
+                # ファイル名を熊本市用に変更
+                with open('result_kumamoto_city.csv', 'w', encoding='utf-8-sig', newline='') as f:
                     writer = csv.writer(f)
                     writer.writerow(header)
                     writer.writerows(all_data_rows)
