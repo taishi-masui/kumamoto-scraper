@@ -94,7 +94,7 @@ def main():
                     print(f"  -> {t_name}: データが見つかりませんでした")
                     continue
 
-                # テスト用に 1件 のみ取得
+                # 各地区 1件 のみ取得
                 rows_count = 1 
                 for i in range(rows_count):
                     rows = target_f.locator("#tBody tr")
@@ -148,6 +148,12 @@ def main():
                         except:
                             bidders_part = [""] * 20
 
-                        # ヘッダー作成（result.csv保存用）
+                        # ヘッダー作成
                         if not header:
-                            header = ["自治体名", "施行番号/案件番号", "業種 種
+                            header = ["自治体名", "施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法", "電子入札案件番号", "詳細工事名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
+                            for k in range(1, 11):
+                                header.extend([f"業者{k}", f"金額{k}"])
+
+                        # リストに追加
+                        all_data_rows.append([t_name] + base_data + detail_fields + bidders_part)
+                        print(f"★
