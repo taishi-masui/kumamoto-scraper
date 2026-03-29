@@ -62,39 +62,29 @@ def main():
                 
                 if not target_f: continue
 
-                # --- 【ここがポイント：項目名から列番号を特定】 ---
-                # 取得したい項目のキーワード
-                keywords = ["施行番号", "業種", "工事・業務名", "契約方法"]
-                col_map = {}
-                
+                # 【修正ポイント】ヘッダーから「ランク」の位置を特定する
+                # スクリショットに基づき、ランク列があればそれを飛ばしてデータを抜く
+                column_indices = [0, 1, 2, 3] # デフォルト(熊本県など)
                 try:
-                    # ヘッダー行(th)をすべて取得して、キーワードが何番目にあるか調べる
+                    # 一覧のヘッダー行(th)を確認
                     header_cells = target_f.locator("tr").first.locator("th, td").all_inner_texts()
-                    header_cells = [c.replace("\n", "").replace(" ", "") for c in header_cells] # 改行などを除去
-                    
-                    for kw in keywords:
-                        for idx, cell in enumerate(header_cells):
-                            if kw in cell:
-                                col_map[kw] = idx
-                                break
-                    print(f"  -> [解析完了] 列位置: {col_map}")
-                except Exception as e:
-                    print(f"  !! ヘッダー解析失敗: {e}")
-                    continue
+                    if "ランク" in header_cells:
+                        rank_idx = header_cells.index("ランク")
+                        # ランクより後ろのインデックスを1つずつずらす
+                        print(f"  -> [INFO] ランク列を検出しました(Index:{rank_idx})。補正します。")
+                        raw_indices = [0, 1, 2, 3, 4] # 5列あるはず
+                        raw_indices.pop(rank_idx) # ランクの列だけ除外
+                        column_indices = raw_indices[:4] # 必要な4つに絞る
+                except: pass
 
                 rows_count = 1 # テスト用
                 for i in range(rows_count):
                     rows = target_f.locator("#tBody tr")
                     row_el = rows.nth(i)
-                    tds = row_el.locator("td").all_inner_texts()
+                    all_cells = [c.inner_text().strip().replace('\n', ' ') for c in row_el.locator("td").all()]
                     
-                    # 特定した列番号からデータを抽出（見つからない場合は空文字）
-                    base_data = [
-                        tds[col_map["施行番号"]].strip() if "施行番号" in col_map else "",
-                        tds[col_map["業種"]].strip() if "業種" in col_map else "",
-                        tds[col_map["工事・業務名"]].strip() if "工事・業務名" in col_map else "",
-                        tds[col_map["契約方法"]].strip() if "契約方法" in col_map else ""
-                    ]
+                    # 【修正ポイント】特定したインデックスでデータを抽出
+                    base_data = [all_cells[idx] for idx in column_indices]
 
                     target_f.evaluate(f"jsBidInfo({i});")
                     time.sleep(15)
@@ -125,11 +115,11 @@ def main():
                             get_v("状態")
                         ]
 
-                        bidders_part = [""] * 20
+                        bidders_part = [""] * 20 # 略
                         
                         if not header:
                             header = ["自治体名", "施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法"]
-                            header += ["電子入札案件番号", "詳細工事名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
+                            header += ["電子入札案件番号", "工事・業務名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
                             for k in range(1, 11): header.extend([f"業者{k}", f"金額{k}"])
 
                         all_data_rows.append([t_name] + base_data + detail_fields + bidders_part)
