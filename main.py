@@ -10,7 +10,6 @@ def format_price(v):
     return f"¥{int(num_str):,}"
 
 def main():
-    # 地区リストの導入のみ
     targets = [
         {"name": "熊本県", "code": "0100"},
         {"name": "南小国町", "code": "0423"}
@@ -21,11 +20,12 @@ def main():
         context = browser.new_context(user_agent="Mozilla/5.0...", locale="ja-JP")
         page = context.new_page()
 
-        try:
-            for target in targets:
-                t_name = target["name"]
-                t_code = target["code"]
+        # 地区ループ
+        for target in targets:
+            t_name = target["name"]
+            t_code = target["code"]
 
+            try:
                 # 1. 成功時と同じURLアクセス
                 page.goto(f"https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no={t_code}", wait_until="networkidle")
                 time.sleep(5)
@@ -68,8 +68,6 @@ def main():
                         time.sleep(3)
                     
                     if not target_f: break
-
-                    # 【ここを 1 に変更しただけ】
                     rows_count = 1 
 
                     for i in range(rows_count):
@@ -143,13 +141,10 @@ def main():
 
                             all_data_rows.append(base_data + detail_fields + bidders_part)
                             
-                            # 確認ログ
                             print(f"★ {t_name}: 1件目完了")
                             
                             detail_f.evaluate("jsBack();")
                             time.sleep(10)
-
-                    # 1ページ目で抜ける
                     break
 
                 if all_data_rows:
@@ -158,10 +153,12 @@ def main():
                         writer.writerow(header)
                         writer.writerows(all_data_rows)
 
-        except Exception:
-            pass
-        finally:
-            browser.close()
+            except Exception as e:
+                # 【ここを修正】pass ではなくエラーを表示して、次の地区(南小国町)へ
+                print(f"!! {t_name} でエラー: {e}")
+                continue
+
+        browser.close()
 
 if __name__ == "__main__":
     main()
