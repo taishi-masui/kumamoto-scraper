@@ -7,15 +7,17 @@ import os
 import urllib.request
 
 def format_price(v):
+    """数字を ¥1,234,567 の形式に整形する"""
     if not v: return ""
     num_str = re.sub(r'[^\d]', '', v.split('(')[0])
     if not num_str: return ""
     return f"¥{int(num_str):,}"
 
 def send_to_spreadsheet(data):
+    """取得したリストをそのままGASに投げる"""
     url = os.environ.get("GAS_WEBAPP_URL")
     if not url:
-        print("GAS_WEBAPP_URL is not set.")
+        print("GAS_WEBAPP_URL が設定されていません。")
         return
     try:
         req_data = json.dumps(data).encode('utf-8')
@@ -29,10 +31,10 @@ def send_to_spreadsheet(data):
         print(f"送信エラー: {e}")
 
 def main():
+    # 取得対象
     targets = [
         {"name": "熊本県", "code": "0100"},
-        {"name": "熊本市", "code": "0200"},
-        {"name": "南小国町", "code": "0423"}
+        {"name": "熊本市", "code": "0200"}
     ]
     
     all_data_rows = []
@@ -49,12 +51,15 @@ def main():
                 t_code = target["code"]
                 print(f"--- {t_name} の取得を開始します ---")
 
+                # 1. サイトアクセス
                 page.goto(f"https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no={t_code}", wait_until="networkidle")
                 time.sleep(5)
                 
+                # 2. メニュー表示
                 menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
                 menu_f.evaluate("jsLink(1,1);")
                 
+                # 3. 検索実行
                 search_started = False
                 for _ in range(10): 
                     for f in page.frames:
@@ -71,6 +76,7 @@ def main():
                     if search_started: break
                     time.sleep(3)
 
+                # 4. 一覧から1件取得
                 target_f = None
                 for _ in range(10):
                     for f in page.frames:
@@ -86,6 +92,7 @@ def main():
                     print(f"  -> {t_name}: データが見つかりませんでした")
                     continue
 
+                # テスト用に 1件 のみ取得
                 rows_count = 1 
                 for i in range(rows_count):
                     rows = target_f.locator("#tBody tr")
@@ -93,6 +100,7 @@ def main():
                     all_cells = [c.inner_text().strip().replace('\n', ' ') for c in row_el.locator("td").all()]
                     base_data = all_cells[0:4] 
 
+                    # 詳細表示
                     target_f.evaluate(f"jsBidInfo({i});")
                     time.sleep(15)
                     
@@ -139,24 +147,28 @@ def main():
                             bidders_part = [""] * 20
 
                         if not header:
-                            header = ["自治体名", "施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法", "電子入札案件番号", "詳細工事名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
+                            header = ["自治体名", "施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法"]
+                            header += ["電子入札案件番号", "工事・業務名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
                             for k in range(1, 11):
                                 header.extend([f"業者{k}", f"金額{k}"])
 
                         all_data_rows.append([t_name] + base_data + detail_fields + bidders_part)
-                        print(f"COMPLETE: {t_name}")
+                        print(f"★ {t_name}: 1件完了")
                         
                         detail_f.evaluate("jsBack();")
                         time.sleep(10)
 
+            # 5. 全地区終了後にCSV保存と送信
             if all_data_rows:
+                # バックアップCSV作成
                 with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
                     writer = csv.writer(f)
                     writer.writerow(header)
                     writer.writerows(all_data_rows)
+                print(f"\nCSV作成完了。スプレッドシートへ送信します...")
                 
-                print(f"Sending {len(all_data_rows)} rows to spreadsheet...")
-                send_to_spreadsheet(all_data_rows)
+                # 送信（ヘッダーも含めて送る）
+                send_to_spreadsheet([header] + all_data_rows)
 
         except Exception as e:
             print(f"Error: {e}")
