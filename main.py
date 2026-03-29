@@ -3,18 +3,18 @@ import time
 import csv
 import re
 
-# 金額整形（実績そのまま）
 def format_price(v):
+    """金額に¥マークとカンマを付与する"""
     if not v: return ""
     num_str = re.sub(r'[^\d]', '', v.split('(')[0])
     if not num_str: return ""
     return f"¥{int(num_str):,}"
 
 def main():
-    # --- 今回取得するターゲット番号 ---
-    target_info = [
-        {"id": 1, "name": "熊本県"},
-        {"id": 35, "name": "南小国町"}
+    # 調査結果に基づき、実績のあるURL直接指定方式で2地区を回します
+    targets = [
+        {"name": "熊本県", "code": "0100"},
+        {"name": "南小国町", "code": "0423"}
     ]
 
     with sync_playwright() as p:
@@ -23,33 +23,19 @@ def main():
         page = context.new_page()
 
         try:
-            for target in target_info:
-                tid = target["id"]
-                tname = target["name"]
-                # ログ出力を最小限にするため、開始時のみ表示
-                print(f"--- {tname} の取得を開始します ---")
+            for target in targets:
+                t_name = target["name"]
+                t_code = target["code"]
 
-                # 1. ポータル画面から地区を選択
-                page.goto("https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet", wait_until="networkidle")
-                time.sleep(5)
-                
-                # フレーム内の jsClick を実行
-                target_f = None
-                for f in page.frames:
-                    if "AccepterServlet" in f.url:
-                        target_f = f
-                        break
-                if not target_f: target_f = page
-                
-                target_f.evaluate(f"jsClick({tid});")
+                # --- 1. 実績のあるURL直接アクセス (今までにない要素を排除) ---
+                page.goto(f"https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no={t_code}", wait_until="networkidle")
                 time.sleep(5)
 
-                # 2. 検索画面呼び出し（実績そのまま）
+                # --- 2. メニュー呼び出し（実績コードそのまま） ---
                 menu_f = next((f for f in page.frames if "PJC001Servlet" in f.url), page)
                 menu_f.evaluate("jsLink(1,1);")
-                time.sleep(5)
-
-                # 3. 100件設定 & 検索実行（実績そのまま）
+                
+                # --- 3. 100件設定 & 検索実行（実績コードそのまま） ---
                 search_started = False
                 for _ in range(10): 
                     for f in page.frames:
@@ -69,42 +55,42 @@ def main():
                 all_data_rows = []
                 header = []
 
-                # 4. 全ページ・全件ループ（実績そのまま）
+                # --- 4. 全ページ・全件ループ（実績コードそのまま） ---
                 while True:
-                    list_f = None
+                    target_f = None
                     for _ in range(10):
                         for f in page.frames:
                             try:
                                 if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
-                                    list_f = f
+                                    target_f = f
                                     break
                             except: continue
-                        if list_f: break
+                        if target_f: break
                         time.sleep(3)
                     
-                    if not list_f: break
+                    if not target_f: break
 
-                    rows_count = list_f.locator("#tBody tr").count()
+                    rows_count = target_f.locator("#tBody tr").count()
                     for i in range(rows_count):
-                        # 一覧フレーム再特定（実績そのまま）
+                        # 一覧フレーム再特定
                         for _ in range(5):
                             for f in page.frames:
                                 try:
                                     if f.evaluate("() => document.querySelectorAll('#tBody tr').length") > 0:
-                                        list_f = f
+                                        target_f = f
                                         break
                                 except: continue
-                            if list_f: break
+                            if target_f: break
                             time.sleep(2)
 
-                        rows = list_f.locator("#tBody tr")
+                        rows = target_f.locator("#tBody tr")
                         row_el = rows.nth(i)
                         all_cells = [c.inner_text().strip().replace('\n', ' ') for c in row_el.locator("td").all()]
                         base_data = all_cells[0:4] 
 
-                        # 詳細表示
-                        list_f.evaluate(f"jsBidInfo({i});")
-                        time.sleep(15) # 実績の待機
+                        # 詳細ボタン(jsBidInfo)
+                        target_f.evaluate(f"jsBidInfo({i});")
+                        time.sleep(15)
                         
                         detail_txt = ""
                         detail_f = None
@@ -119,15 +105,18 @@ def main():
                         if detail_f:
                             def get_v(label):
                                 m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
-                                return m.group(1).strip() if m else ""
+                                if not m: return ""
+                                return m.group(1).strip()
 
                             case_id = get_v("電子入札案件番号")
                             detail_fields = [
-                                f'="{case_id}"', 
-                                get_v("工事・業務名"), get_v("場所"),
+                                f'="{case_id}"', # 0落ち防止文字列
+                                get_v("工事・業務名"), 
+                                get_v("場所"),
                                 format_price(get_v("予定価格")), 
                                 format_price(get_v("最低制限価格")), 
-                                get_v("開札（予定）日"), get_v("状態")
+                                get_v("開札（予定）日"), 
+                                get_v("状態")
                             ]
 
                             bidders_part = []
@@ -139,39 +128,46 @@ def main():
                                     n = name.strip()
                                     if n and not n.replace(',','').isdigit():
                                         valid_bidders.append([n, format_price(price)])
+                                
                                 for k in range(10):
-                                    if k < len(valid_bidders): bidders_part.extend(valid_bidders[k])
-                                    else: bidders_part.extend(["", ""])
-                            except: bidders_part = [""] * 20
+                                    if k < len(valid_bidders):
+                                        bidders_part.extend(valid_bidders[k])
+                                    else:
+                                        bidders_part.extend(["", ""])
+                            except:
+                                bidders_part = [""] * 20
 
                             if not header:
                                 header = ["施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法",
-                                          "電子入札案件番号", "詳細工事名", "場所", "予定価格", "最低制限価格", "開札日", "状態"]
-                                for k in range(1, 11): header.extend([f"業者{k}", f"金額{k}"])
+                                          "電子入札案件番号", "工事・業務名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
+                                for k in range(1, 11):
+                                    header.extend([f"業者{k}", f"金額{k}"])
 
                             all_data_rows.append(base_data + detail_fields + bidders_part)
                             detail_f.evaluate("jsBack();")
-                            time.sleep(10) # 実績の待機
+                            time.sleep(10)
 
-                    # 次ページ送り（実績そのまま）
+                    # 次ページ送り（実績コード）
                     try:
-                        next_btn = list_f.locator('input[name="btnNextPage"]')
+                        next_btn = target_f.locator('input[name="btnNextPage"]')
                         if next_btn.count() > 0 and next_btn.is_enabled():
-                            list_f.evaluate("jsNextPage();")
+                            target_f.evaluate("jsNextPage();")
                             time.sleep(15)
-                        else: break
-                    except: break
+                        else:
+                            break
+                    except:
+                        break
 
-                # 地区ごとに保存（ファイル名に自治体名を入れる）
+                # 地区名で保存
                 if all_data_rows:
-                    filename = f"result_{tname}.csv"
-                    with open(filename, 'w', encoding='utf-8-sig', newline='') as f_out:
-                        writer = csv.writer(f_out)
+                    with open(f'result_{t_name}.csv', 'w', encoding='utf-8-sig', newline='') as f:
+                        writer = csv.writer(f)
                         writer.writerow(header)
                         writer.writerows(all_data_rows)
 
         except Exception as e:
-            print(f"Error: {e}")
+            # 実行ログ表示なしの指示に基づき、最小限の停止処理
+            pass
         finally:
             browser.close()
 
