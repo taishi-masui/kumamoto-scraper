@@ -2,6 +2,9 @@ from playwright.sync_api import sync_playwright
 import time
 import csv
 import re
+import json
+import os
+import urllib.request
 
 def format_price(v):
     """数字を ¥1,234,567 の形式に整形する"""
@@ -9,6 +12,23 @@ def format_price(v):
     num_str = re.sub(r'[^\d]', '', v.split('(')[0])
     if not num_str: return ""
     return f"¥{int(num_str):,}"
+
+def send_to_spreadsheet(data):
+    """取得したリストをそのままGASに投げる"""
+    url = os.environ.get("GAS_WEBAPP_URL")
+    if not url:
+        print("GAS_WEBAPP_URL が設定されていません。")
+        return
+    try:
+        req_data = json.dumps(data).encode('utf-8')
+        req = urllib.request.Request(
+            url, data=req_data, method='POST', 
+            headers={'Content-Type': 'application/json'}
+        )
+        with urllib.request.urlopen(req) as res:
+            print(f"スプレッドシート送信結果: {res.read().decode('utf-8')}")
+    except Exception as e:
+        print(f"送信エラー: {e}")
 
 def main():
     # 取得対象
@@ -75,7 +95,6 @@ def main():
                 # テスト用に 1件 のみ取得
                 rows_count = 1 
                 for i in range(rows_count):
-                    # 一覧からデータ取得
                     rows = target_f.locator("#tBody tr")
                     row_el = rows.nth(i)
                     all_cells = [c.inner_text().strip().replace('\n', ' ') for c in row_el.locator("td").all()]
@@ -127,27 +146,29 @@ def main():
                         except:
                             bidders_part = [""] * 20
 
-                        # ヘッダー作成（最初の1回だけ）
                         if not header:
                             header = ["自治体名", "施行番号/案件番号", "業種 種別", "工事・業務名", "契約方法"]
                             header += ["電子入札案件番号", "工事・業務名", "場所", "予定価格", "最低制限価格", "開札（予定）日", "状態"]
                             for k in range(1, 11):
                                 header.extend([f"業者{k}", f"金額{k}"])
 
-                        # 統合リストに保存
                         all_data_rows.append([t_name] + base_data + detail_fields + bidders_part)
                         print(f"★ {t_name}: 1件完了")
                         
                         detail_f.evaluate("jsBack();")
                         time.sleep(10)
 
-            # 5. 全地区の処理が終わった後に result.csv という名前で保存
+            # 5. 全地区終了後にCSV保存と送信
             if all_data_rows:
+                # バックアップCSV作成
                 with open('result.csv', 'w', encoding='utf-8-sig', newline='') as f:
                     writer = csv.writer(f)
                     writer.writerow(header)
                     writer.writerows(all_data_rows)
-                print(f"\nCSV作成完了: 計{len(all_data_rows)}件を保存しました。")
+                print(f"\nCSV作成完了。スプレッドシートへ送信します...")
+                
+                # 送信（ヘッダーも含めて送る）
+                send_to_spreadsheet([header] + all_data_rows)
 
         except Exception as e:
             print(f"Error: {e}")
