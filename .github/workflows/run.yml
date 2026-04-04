@@ -1,9 +1,9 @@
 name: test-run
 
 on:
-  workflow_dispatch:
-  #schedule:
-  #  - cron: '0 0 * * *'
+  workflow_dispatch: # 手動実行のみ残す
+  # schedule:        # スケジュール実行をコメントアウト（無効化）
+  #   - cron: '0 0 * * *'
 
 jobs:
   run:
@@ -20,13 +20,13 @@ jobs:
 
       - name: ライブラリインストール
         run: |
-          pip install -r requirements.txt
+          # 必要最小限のインストール
+          pip install playwright
           playwright install chromium --with-deps
 
       - name: 実行
         run: python main.py
         env:
-          # 【重要】GitHub SecretsからGASのURLを読み込み、Pythonの環境変数にセットします
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
 
       - name: 成果物とデバッグ情報の保存
@@ -36,6 +36,4 @@ jobs:
           name: kumamoto-bid-results
           path: |
             result.csv
-            debug_after_click.png
-            debug_result_view.png
           if-no-files-found: warn
