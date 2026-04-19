@@ -23,7 +23,7 @@ def send_to_spreadsheet(data):
         log("警告: GAS_WEBAPP_URL が設定されていません。")
         return
     try:
-        log("GASへの送信を開始します（重複チェックはGAS側で行われます）...")
+        log("GASへの送信を開始します...")
         req_data = json.dumps(data).encode('utf-8')
         req = urllib.request.Request(
             url, data=req_data, method='POST', 
@@ -35,10 +35,9 @@ def send_to_spreadsheet(data):
         log(f"送信エラー: {e}")
 
 def main():
+    # テストのため「熊本県」のみに限定
     targets = [
-        {"name": "熊本県", "code": "0100"},
-        {"name": "南小国町", "code": "0423"},
-        {"name": "小国町", "code": "0424"}
+        {"name": "熊本県", "code": "0100"}
     ]
     
     all_data_rows = []
@@ -98,9 +97,10 @@ def main():
                     log(f"× {t_name}: 該当なし")
                     continue
 
+                # テスト用に 5件 固定
                 actual_rows = target_f.locator("#tBody tr").count()
                 rows_count = min(actual_rows, 5) 
-                log(f"{t_name}: {rows_count}件取得します")
+                log(f"{t_name}: 最新{rows_count}件を取得します")
 
                 for i in range(rows_count):
                     rows = target_f.locator("#tBody tr")
@@ -109,7 +109,7 @@ def main():
                     base_data = all_cells[0:4] 
 
                     target_f.evaluate(f"jsBidInfo({i});")
-                    time.sleep(15)
+                    time.sleep(15) # サイト負荷軽減のため維持
                     
                     detail_txt = ""
                     detail_f = None
@@ -145,12 +145,11 @@ def main():
                             bidders_part = [""] * 20
 
                         all_data_rows.append([t_name] + base_data + detail_fields + bidders_part)
-                        log(f"  -> {t_name} {i+1}件目 取得成功")
+                        log(f"  -> {i+1}件目 取得成功: {case_id}")
                         detail_f.evaluate("jsBack();")
                         time.sleep(10)
 
             if all_data_rows:
-                # 送信（データ行のみ送る）
                 send_to_spreadsheet(all_data_rows)
 
         except Exception as e:
