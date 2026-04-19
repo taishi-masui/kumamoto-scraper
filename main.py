@@ -30,6 +30,7 @@ def send_to_spreadsheet(data):
         log(f"送信エラー: {e}")
 
 def main():
+    # テスト対象：熊本県
     targets = [
         {
             "name": "熊本県", 
@@ -113,9 +114,9 @@ def main():
                     detail_f = None
                     for f in page.frames:
                         try:
-                            res = f.evaluate("() => ({ url: window.location.href, html: document.body.innerHTML, text: document.body.innerText })")
+                            res = f.evaluate("() => ({ url: window.location.href, text: document.body.innerText })")
                             if "PJC503Servlet" in res['url']:
-                                detail_f, detail_html, detail_txt = f, res['html'], res['text']
+                                detail_f, detail_txt = f, res['text']
                         except: continue
 
                     if detail_f:
@@ -123,33 +124,34 @@ def main():
                             m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
                             return m.group(1).strip() if m else ""
 
-                        # 落札者抽出ロジック
+                        # 【修正点】落札者抽出ロジック（同期モード用にawaitを削除）
                         rakusatsu_price = ""
                         rakusatsu_vender = ""
                         try:
-                            # HTML内の全trをスキャンして「［落札］」を探す
-                            rows_data = detail_f.locator("tr").all()
-                            for r in rows_data:
+                            # Playwrightの同期APIを使用して行を取得
+                            rows = detail_f.locator("tr").all()
+                            for r in rows:
                                 cells = r.locator("td").all()
                                 if len(cells) >= 3:
-                                    tekiyo = (await cells[2].inner_text()).strip() if hasattr(cells[2], 'inner_text') else cells[2].inner_text()
-                                    # 上記を同期版に修正
+                                    # inner_text()を同期的に呼び出し
                                     tekiyo = cells[2].inner_text().strip()
                                     if "［落札］" in tekiyo or "[落札]" in tekiyo:
                                         rakusatsu_vender = cells[0].inner_text().strip()
                                         rakusatsu_price = format_price(cells[1].inner_text().strip())
                                         break
-                        except: pass
+                        except Exception as e:
+                            log(f"落札者解析中にエラー（スキップします）: {e}")
 
                         case_id = get_v("電子入札案件番号")
-                        # 基本データ
+                        # 一覧の1行目のデータを取得
                         base_info = [t_name] + [c.inner_text().strip() for c in target_f.locator("#tBody tr").nth(0).locator("td").all()][0:4]
-                        # 詳細データ（落札情報を予定価格の右に追加）
+                        
+                        # 詳細フィールド作成
                         detail_info = [
                             f'="{case_id}"', get_v("工事・業務名"), get_v("場所"), 
                             format_price(get_v("予定価格")), 
-                            rakusatsu_price,  # 追加: 落札価格
-                            rakusatsu_vender, # 追加: 落札業者
+                            rakusatsu_price,  # 落札価格
+                            rakusatsu_vender, # 落札業者
                             format_price(get_v("最低制限価格")), 
                             get_v("開札（予定）日"), get_v("状態")
                         ]
@@ -165,7 +167,7 @@ def main():
                         except: pass
 
                         all_data_rows.append(base_info + detail_info + bidders)
-                        log(f"  -> 取得成功: {case_id} (落札者: {rakusatsu_vender})")
+                        log(f"  -> 取得成功: {case_id} (落札:{rakusatsu_vender if rakusatsu_vender else 'なし'})")
                         detail_f.evaluate("jsBack();")
                         time.sleep(10)
 
@@ -173,7 +175,7 @@ def main():
                 send_to_spreadsheet(all_data_rows)
 
         except Exception as e:
-            log(f"エラー: {e}")
+            log(f"エラー発生: {e}")
         finally:
             browser.close()
 
