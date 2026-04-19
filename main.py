@@ -73,7 +73,7 @@ def main():
                             # 業種分類を「工事(00)」に設定
                             sel_gyosyu = f.locator('select[name="GYOSYU_TYPE"]')
                             if sel_gyosyu.count() > 0:
-                                sel_gyosyu.select_option("00")
+                                sel_gyosyu.select_option("01")
                                 log("業種分類を『工事』に設定しました")
 
                             # 表示件数を100件に設定
@@ -109,7 +109,7 @@ def main():
                     log(f"× {t_name}: 検索結果が見つかりませんでした。スキップします。")
                     continue
 
-                rows_count = 25 
+                rows_count = 5 
                 for i in range(rows_count):
                     rows = target_f.locator("#tBody tr")
                     row_el = rows.nth(i)
