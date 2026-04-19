@@ -99,7 +99,7 @@ def main():
                     continue
 
                 actual_rows = target_f.locator("#tBody tr").count()
-                rows_count = min(actual_rows, 25) 
+                rows_count = min(actual_rows, 5) 
                 log(f"{t_name}: {rows_count}件取得します")
 
                 for i in range(rows_count):
