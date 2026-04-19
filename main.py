@@ -22,6 +22,7 @@ def send_to_spreadsheet(data):
         log("警告: GAS_WEBAPP_URL 未設定")
         return
     try:
+        log(f"GASへ合計 {len(data)} 件のデータを送信します...")
         req_data = json.dumps(data).encode('utf-8')
         req = urllib.request.Request(url, data=req_data, method='POST', headers={'Content-Type': 'application/json'})
         with urllib.request.urlopen(req) as res:
@@ -30,24 +31,23 @@ def send_to_spreadsheet(data):
         log(f"送信エラー: {e}")
 
 def main():
-    # 自治体別の詳細フィルタ設定
     targets = [
         {
             "name": "熊本県", "code": "0100",
-            "n_types": ["1002011", "1002012"], # 一般, 通常指名
-            "g_list": ["0100010", "0100130", "0100050"], # 土木, 舗装, とび
-            "h_tanto": "25" # 阿蘇
+            "n_types": ["1002011", "1002012"],
+            "g_list": ["0100010", "0100130", "0100050"],
+            "h_tanto": "25"
         },
         {
             "name": "南小国町", "code": "0423",
-            "n_types": [""], # 指定なし
-            "g_list": [""],    # 指定なし（工事分類のみ）
+            "n_types": [""],
+            "g_list": [""],
             "h_tanto": ""
         },
         {
             "name": "小国町", "code": "0424",
-            "n_types": [""], # 指定なし
-            "g_list": ["0100010", "0100130", "0100050"], # 県と同じ3業種
+            "n_types": [""],
+            "g_list": ["0100010", "0100130", "0100050"],
             "h_tanto": ""
         }
     ]
@@ -66,7 +66,6 @@ def main():
                         log(f"--- {t['name']} (入札:{n_type if n_type else '全'} / 業種:{g_val if g_val else '全'}) ---")
                         page.goto(f"https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no={t['code']}", wait_until="networkidle")
                         
-                        # フレーム特定
                         menu_f = None
                         for _ in range(15):
                             for f in page.frames:
@@ -79,14 +78,13 @@ def main():
                         time.sleep(3)
                         menu_f.evaluate("jsLink(1,1);")
                         
-                        # 検索条件入力
                         search_started = False
                         for _ in range(15): 
                             time.sleep(2)
                             for f in page.frames:
                                 try:
                                     if f.locator('select[name="GYOSYU_TYPE"]').count() > 0:
-                                        f.locator('select[name="GYOSYU_TYPE"]').select_option("00") # 工事固定
+                                        f.locator('select[name="GYOSYU_TYPE"]').select_option("00")
                                         if n_type: f.locator('select[name="NYUSATU_TYPE"]').select_option(n_type)
                                         if g_val: f.locator('select[name="GYOSYU"]').select_option(g_val)
                                         if t["h_tanto"]: f.locator('select[name="HACHU_TANTOU_KYOKU"]').select_option(t["h_tanto"])
@@ -96,7 +94,6 @@ def main():
                                 except: continue
                             if search_started: break
 
-                        # 一覧待機
                         target_f = None
                         for _ in range(10):
                             for f in page.frames:
@@ -108,67 +105,69 @@ def main():
                             time.sleep(3)
                         
                         if not target_f:
-                            log("  -> 該当なし")
+                            log("  -> 該当案件なし")
                             continue
 
-                        # 最新の1件を取得
-                        target_f.evaluate("jsBidInfo(0);")
-                        time.sleep(15)
-                        
-                        detail_txt = ""
-                        detail_f = None
-                        for f in page.frames:
-                            try:
-                                res = f.evaluate("() => ({ url: window.location.href, text: document.body.innerText })")
-                                if "PJC503Servlet" in res['url']:
-                                    detail_f, detail_txt = f, res['text']
-                            except: continue
+                        rows_count = target_f.locator("#tBody tr").count()
+                        log(f"  -> {rows_count} 件検出")
 
-                        if detail_f:
-                            def get_v(label):
-                                m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
-                                return m.group(1).strip() if m else ""
-
-                            # 落札者抽出
-                            rakusatsu_price, rakusatsu_vender = "", ""
-                            try:
-                                rows = detail_f.locator("tr").all()
-                                for r in rows:
-                                    cells = r.locator("td").all()
-                                    if len(cells) >= 3:
-                                        tekiyo = cells[2].inner_text().strip()
-                                        if "［落札］" in tekiyo or "[落札]" in tekiyo:
-                                            rakusatsu_vender = cells[0].inner_text().strip()
-                                            rakusatsu_price = format_price(cells[1].inner_text().strip())
-                                            break
-                            except: pass
-
-                            case_id = get_v("電子入札案件番号")
-                            # 一覧の2列目（施行番号/案件番号）を含む基本情報を取得
-                            base_info = [t['name']] + [c.inner_text().strip() for c in target_f.locator("#tBody tr").nth(0).locator("td").all()][0:4]
+                        for i in range(rows_count):
+                            current_rows = target_f.locator("#tBody tr")
+                            cells = current_rows.nth(i).locator("td").all()
+                            base_info = [t['name']] + [c.inner_text().strip() for c in cells][0:4]
                             
-                            detail_info = [
-                                f'="{case_id}"', get_v("工事・業務名"), get_v("場所"), 
-                                format_price(get_v("予定価格")), 
-                                rakusatsu_price,  # 落札価格
-                                rakusatsu_vender, # 落札業者
-                                format_price(get_v("最低制限価格")), 
-                                get_v("開札（予定）日"), get_v("状態")
-                            ]
+                            log(f"  -> [{i+1}/{rows_count}] 詳細取得中")
+                            target_f.evaluate(f"jsBidInfo({i});")
+                            time.sleep(15) 
                             
-                            bidders = [""] * 20
-                            try:
-                                bid_txt = detail_txt.split("摘要")[-1].split("備考")[0]
-                                matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_txt)
-                                valid = [[m[0].strip(), format_price(m[1])] for m in matches if not m[0].strip().replace(',','').isdigit()]
-                                for k in range(min(len(valid), 10)):
-                                    bidders[k*2], bidders[k*2+1] = valid[k][0], valid[k][1]
-                            except: pass
+                            detail_txt, detail_f = "", None
+                            for f in page.frames:
+                                try:
+                                    res = f.evaluate("() => ({ url: window.location.href, text: document.body.innerText })")
+                                    if "PJC503Servlet" in res['url']:
+                                        detail_f, detail_txt = f, res['text']
+                                except: continue
 
-                            all_data_rows.append(base_info + detail_info + bidders)
-                            log(f"  -> 取得成功: {case_id}")
-                            detail_f.evaluate("jsBack();")
-                            time.sleep(10)
+                            if detail_f:
+                                def get_v(label):
+                                    m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
+                                    return m.group(1).strip() if m else ""
+
+                                rakusatsu_price, rakusatsu_vender = "", ""
+                                try:
+                                    rows_data = detail_f.locator("tr").all()
+                                    for r in rows_data:
+                                        tds = r.locator("td").all()
+                                        if len(tds) >= 3:
+                                            tekiyo = tds[2].inner_text().strip()
+                                            if "［落札］" in tekiyo or "[落札]" in tekiyo:
+                                                rakusatsu_vender = tds[0].inner_text().strip()
+                                                rakusatsu_price = format_price(tds[1].inner_text().strip())
+                                                break
+                                except: pass
+
+                                case_id = get_v("電子入札案件番号")
+                                detail_info = [
+                                    f'="{case_id}"', get_v("工事・業務名"), get_v("場所"), 
+                                    format_price(get_v("予定価格")), 
+                                    rakusatsu_price, rakusatsu_vender,
+                                    format_price(get_v("最低制限価格")), 
+                                    get_v("開札（予定）日"), get_v("状態")
+                                ]
+                                
+                                bidders = [""] * 20
+                                try:
+                                    bid_txt = detail_txt.split("摘要")[-1].split("備考")[0]
+                                    matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_txt)
+                                    valid = [[m[0].strip(), format_price(m[1])] for m in matches if not m[0].strip().replace(',','').isdigit()]
+                                    for k in range(min(len(valid), 10)):
+                                        bidders[k*2], bidders[k*2+1] = valid[k][0], valid[k][1]
+                                except: pass
+
+                                all_data_rows.append(base_info + detail_info + bidders)
+                                detail_f.evaluate("jsBack();")
+                                time.sleep(10)
+                                time.sleep(2)
 
             if all_data_rows:
                 send_to_spreadsheet(all_data_rows)
