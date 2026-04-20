@@ -11,7 +11,6 @@ def log(message):
     print(f"[{timestamp}] {message}")
 
 def format_price(v):
-    """¥やカンマを除去し、計算可能な数値(int)として返す"""
     if not v: return ""
     num_str = re.sub(r'[^\d]', '', v.split('(')[0])
     if not num_str: return ""
@@ -19,6 +18,18 @@ def format_price(v):
         return int(num_str)
     except:
         return ""
+
+def get_nendo_and_tsuki(date_str):
+    """日付文字列から年度(int)と月(str)を返す"""
+    if not date_str:
+        return "", ""
+    m = re.findall(r'(\d+)', date_str)
+    if len(m) >= 2:
+        y, m = int(m[0]), int(m[1])
+        # 年度計算：1-3月なら前年を年度とする
+        nendo = y if m >= 4 else y - 1
+        return f"{nendo}年度", f"{m}月"
+    return "", ""
 
 def send_to_spreadsheet(data):
     url = os.environ.get("GAS_WEBAPP_URL")
@@ -36,24 +47,9 @@ def send_to_spreadsheet(data):
 
 def main():
     targets = [
-        {
-            "name": "熊本県", "code": "0100",
-            "n_types": ["1002011", "1002012"],
-            "g_list": ["0100010", "0100130", "0100050"],
-            "h_tanto": "25"
-        },
-        {
-            "name": "南小国町", "code": "0423",
-            "n_types": [""],
-            "g_list": [""],
-            "h_tanto": ""
-        },
-        {
-            "name": "小国町", "code": "0424",
-            "n_types": [""],
-            "g_list": ["0100010", "0100130", "0100050"],
-            "h_tanto": ""
-        }
+        {"name": "熊本県", "code": "0100", "n_types": ["1002011", "1002012"], "g_list": ["0100010", "0100130", "0100050"], "h_tanto": "25"},
+        {"name": "南小国町", "code": "0423", "n_types": [""], "g_list": [""], "h_tanto": ""},
+        {"name": "小国町", "code": "0424", "n_types": [""], "g_list": ["0100010", "0100130", "0100050"], "h_tanto": ""}
     ]
     
     all_data_rows = []
@@ -155,15 +151,20 @@ def main():
                                 except: pass
 
                                 case_id = get_v("電子入札案件番号")
-                                row_data = [
+                                kaisatsu_date = get_v("開札（予定）日")
+                                nendo_str, tsuki_str = get_nendo_and_tsuki(kaisatsu_date)
+
+                                # 基本データ（13項目）
+                                base_data = [
                                     v_kikan, v_seko_no, v_gyosyu, v_keiyaku,
                                     f'="{case_id}"', get_v("工事・業務名"), get_v("場所"), 
                                     format_price(get_v("予定価格")), 
                                     rakusatsu_price, rakusatsu_vender,
                                     format_price(get_v("最低制限価格")), 
-                                    get_v("開札（予定）日"), get_v("状態")
+                                    kaisatsu_date, get_v("状態")
                                 ]
                                 
+                                # 業者情報（20列分固定）
                                 bidders = [""] * 20
                                 try:
                                     bid_txt = detail_txt.split("摘要")[-1].split("備考")[0]
@@ -173,7 +174,10 @@ def main():
                                         bidders[k*2], bidders[k*2+1] = valid[k][0], valid[k][1]
                                 except: pass
 
-                                all_data_rows.append(row_data + bidders)
+                                # 全てを連結（最後が年度と月）
+                                all_columns = base_data + bidders + [nendo_str, tsuki_str]
+                                all_data_rows.append(all_columns)
+                                
                                 detail_f.evaluate("jsBack();")
                                 time.sleep(10)
                                 time.sleep(2)
