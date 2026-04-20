@@ -1,9 +1,9 @@
 name: test-run
 
 on:
-  workflow_dispatch: # 手動実行のみ残す
-  schedule:        # スケジュール実行をコメントアウト（無効化）
-  - cron: '0 0 * * *'
+  workflow_dispatch: # 手動実行用
+  schedule:
+    - cron: '0 0 * * *' # 毎日日本時間 9:00（UTC 0:00）に実行
 
 jobs:
   run:
@@ -20,7 +20,6 @@ jobs:
 
       - name: ライブラリインストール
         run: |
-          # 必要最小限のインストール
           pip install playwright
           playwright install chromium --with-deps
 
@@ -30,7 +29,7 @@ jobs:
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
 
       - name: 成果物とデバッグ情報の保存
-        if: always() 
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: kumamoto-bid-results
