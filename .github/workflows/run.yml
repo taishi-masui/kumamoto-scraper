@@ -2,8 +2,8 @@ name: test-run
 
 on:
   workflow_dispatch: # 手動実行のみ残す
-  # schedule:        # スケジュール実行をコメントアウト（無効化）
-  #   - cron: '0 0 * * *'
+  schedule:        # スケジュール実行をコメントアウト（無効化）
+  # - cron: '0 0 * * *'
 
 jobs:
   run:
