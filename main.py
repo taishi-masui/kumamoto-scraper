@@ -11,10 +11,14 @@ def log(message):
     print(f"[{timestamp}] {message}")
 
 def format_price(v):
+    """¥やカンマを除去し、計算可能な数値(int)として返す"""
     if not v: return ""
     num_str = re.sub(r'[^\d]', '', v.split('(')[0])
     if not num_str: return ""
-    return f"¥{int(num_str):,}"
+    try:
+        return int(num_str)
+    except:
+        return ""
 
 def send_to_spreadsheet(data):
     url = os.environ.get("GAS_WEBAPP_URL")
@@ -115,8 +119,6 @@ def main():
                             current_rows = target_f.locator("#tBody tr")
                             cells = current_rows.nth(i).locator("td").all()
                             
-                            # 【修正】一覧からは「自治体名」「施行番号」「業種」「契約方法」のみ取得
-                            # 工事名は詳細ページの方が確実なので、ここでは飛ばす
                             v_kikan = t['name']
                             v_seko_no = cells[1].inner_text().strip()
                             v_gyosyu = cells[2].inner_text().strip()
@@ -153,21 +155,13 @@ def main():
                                 except: pass
 
                                 case_id = get_v("電子入札案件番号")
-                                # 【整理】一覧と詳細の重複をなくし、スッキリした配列にする
                                 row_data = [
-                                    v_kikan,       # A: 自治体名
-                                    v_seko_no,     # B: 施行番号/案件番号
-                                    v_gyosyu,      # C: 業種 種別
-                                    v_keiyaku,     # D: 契約方法
-                                    f'="{case_id}"',# E: 電子入札案件番号 (比較キー)
-                                    get_v("工事・業務名"), # F: 工事名 (詳細から取得)
-                                    get_v("場所"),         # G: 場所
-                                    format_price(get_v("予定価格")), # H: 予定価格
-                                    rakusatsu_price,       # I: 落札価格
-                                    rakusatsu_vender,      # J: 落札業者
-                                    format_price(get_v("最低制限価格")), # K: 最低制限価格
-                                    get_v("開札（予定）日"), # L: 開札日
-                                    get_v("状態")            # M: 状態
+                                    v_kikan, v_seko_no, v_gyosyu, v_keiyaku,
+                                    f'="{case_id}"', get_v("工事・業務名"), get_v("場所"), 
+                                    format_price(get_v("予定価格")), 
+                                    rakusatsu_price, rakusatsu_vender,
+                                    format_price(get_v("最低制限価格")), 
+                                    get_v("開札（予定）日"), get_v("状態")
                                 ]
                                 
                                 bidders = [""] * 20
