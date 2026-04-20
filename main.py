@@ -114,7 +114,13 @@ def main():
                         for i in range(rows_count):
                             current_rows = target_f.locator("#tBody tr")
                             cells = current_rows.nth(i).locator("td").all()
-                            base_info = [t['name']] + [c.inner_text().strip() for c in cells][0:4]
+                            
+                            # 【修正】一覧からは「自治体名」「施行番号」「業種」「契約方法」のみ取得
+                            # 工事名は詳細ページの方が確実なので、ここでは飛ばす
+                            v_kikan = t['name']
+                            v_seko_no = cells[1].inner_text().strip()
+                            v_gyosyu = cells[2].inner_text().strip()
+                            v_keiyaku = cells[4].inner_text().strip()
                             
                             log(f"  -> [{i+1}/{rows_count}] 詳細取得中")
                             target_f.evaluate(f"jsBidInfo({i});")
@@ -147,12 +153,21 @@ def main():
                                 except: pass
 
                                 case_id = get_v("電子入札案件番号")
-                                detail_info = [
-                                    f'="{case_id}"', get_v("工事・業務名"), get_v("場所"), 
-                                    format_price(get_v("予定価格")), 
-                                    rakusatsu_price, rakusatsu_vender,
-                                    format_price(get_v("最低制限価格")), 
-                                    get_v("開札（予定）日"), get_v("状態")
+                                # 【整理】一覧と詳細の重複をなくし、スッキリした配列にする
+                                row_data = [
+                                    v_kikan,       # A: 自治体名
+                                    v_seko_no,     # B: 施行番号/案件番号
+                                    v_gyosyu,      # C: 業種 種別
+                                    v_keiyaku,     # D: 契約方法
+                                    f'="{case_id}"',# E: 電子入札案件番号 (比較キー)
+                                    get_v("工事・業務名"), # F: 工事名 (詳細から取得)
+                                    get_v("場所"),         # G: 場所
+                                    format_price(get_v("予定価格")), # H: 予定価格
+                                    rakusatsu_price,       # I: 落札価格
+                                    rakusatsu_vender,      # J: 落札業者
+                                    format_price(get_v("最低制限価格")), # K: 最低制限価格
+                                    get_v("開札（予定）日"), # L: 開札日
+                                    get_v("状態")            # M: 状態
                                 ]
                                 
                                 bidders = [""] * 20
@@ -164,7 +179,7 @@ def main():
                                         bidders[k*2], bidders[k*2+1] = valid[k][0], valid[k][1]
                                 except: pass
 
-                                all_data_rows.append(base_info + detail_info + bidders)
+                                all_data_rows.append(row_data + bidders)
                                 detail_f.evaluate("jsBack();")
                                 time.sleep(10)
                                 time.sleep(2)
