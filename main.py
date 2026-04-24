@@ -115,12 +115,20 @@ def main():
                             current_rows = target_f.locator("#tBody tr")
                             cells = current_rows.nth(i).locator("td").all()
                             
+                            # --- HP構造に基づく取得 (インデックス修正) ---
                             v_kikan = t['name']
-                            v_seko_no = cells[1].inner_text().strip()
-                            v_gyosyu = cells[2].inner_text().strip()
-                            v_keiyaku = cells[4].inner_text().strip()
                             
-                            log(f"  -> [{i+1}/{rows_count}] 詳細取得中")
+                            # cells[0] は「施行番号<br>電子入札番号」
+                            seko_and_case = cells[0].inner_html().split('<br>')
+                            v_seko_no = seko_and_case[0].strip() if len(seko_and_case) > 0 else ""
+                            
+                            v_gyosyu = cells[1].inner_text().strip()      # 1: 業種
+                            v_case_name = cells[2].inner_text().strip()    # 2: 工事・業務名
+                            v_keiyaku = cells[3].inner_text().strip()     # 3: 入札及び契約方法 (D列)
+                            v_kaisatsu_list = cells[4].inner_text().strip() # 4: 開札(予定)日 (L列)
+                            v_status = cells[5].inner_text().strip()      # 5: 状態 (M列)
+                            
+                            log(f"  -> [{i+1}/{rows_count}] 詳細取得中: {v_case_name[:20]}...")
                             target_f.evaluate(f"jsBidInfo({i});")
                             time.sleep(15) 
                             
@@ -151,17 +159,24 @@ def main():
                                 except: pass
 
                                 case_id = get_v("電子入札案件番号")
-                                kaisatsu_date = get_v("開札（予定）日")
-                                nendo_str, tsuki_str = get_nendo_and_tsuki(kaisatsu_date)
+                                # 年度・月の計算には一覧から取得した日付を使用
+                                nendo_str, tsuki_str = get_nendo_and_tsuki(v_kaisatsu_list)
 
                                 # 基本データ（13項目）
                                 base_data = [
-                                    v_kikan, v_seko_no, v_gyosyu, v_keiyaku,
-                                    f'="{case_id}"', get_v("工事・業務名"), get_v("場所"), 
-                                    format_price(get_v("予定価格")), 
-                                    rakusatsu_price, rakusatsu_vender,
-                                    format_price(get_v("最低制限価格")), 
-                                    kaisatsu_date, get_v("状態")
+                                    v_kikan,         # A: 自治体名
+                                    v_seko_no,       # B: 施行番号
+                                    v_gyosyu,        # C: 業種
+                                    v_keiyaku,       # D: 契約方法
+                                    f'="{case_id}"',   # E: 電子入札案件番号
+                                    v_case_name,     # F: 工事・業務名
+                                    get_v("場所"),    # G: 場所
+                                    format_price(get_v("予定価格")), # H: 予定価格
+                                    rakusatsu_price, # I: 落札価格
+                                    rakusatsu_vender,# J: 落札業者
+                                    format_price(get_v("最低制限価格")), # K: 最低制限価格
+                                    v_kaisatsu_list, # L: 開札日
+                                    v_status         # M: 状態
                                 ]
                                 
                                 # 業者情報（20列分固定）
@@ -174,7 +189,7 @@ def main():
                                         bidders[k*2], bidders[k*2+1] = valid[k][0], valid[k][1]
                                 except: pass
 
-                                # 全てを連結（最後が年度と月）
+                                # 全てを連結
                                 all_columns = base_data + bidders + [nendo_str, tsuki_str]
                                 all_data_rows.append(all_columns)
                                 
