@@ -197,7 +197,7 @@ def main():
                                 time.sleep(10)
                                 time.sleep(2)
 
-            if all_data_rows:
+            
                 send_to_spreadsheet(all_data_rows)
 
         except Exception as e:
