@@ -26,7 +26,6 @@ def get_nendo_and_tsuki(date_str):
     m = re.findall(r'(\d+)', date_str)
     if len(m) >= 2:
         y, m = int(m[0]), int(m[1])
-        # 年度計算：1-3月なら前年を年度とする
         nendo = y if m >= 4 else y - 1
         return f"{nendo}年度", f"{m}月"
     return "", ""
@@ -48,9 +47,7 @@ def send_to_spreadsheet(data):
 def main():
     # 検索用の日付（実行日の30日前）を計算
     one_month_ago = datetime.now() - timedelta(days=30)
-    y_str = str(one_month_ago.year)
-    m_str = str(one_month_ago.month)
-    d_str = str(one_month_ago.day)
+    y_str, m_str, d_str = str(one_month_ago.year), str(one_month_ago.month), str(one_month_ago.day)
 
     targets = [
         {"name": "熊本県", "code": "0100", "n_types": ["1002011", "1002012"], "g_list": ["0100010", "0100130", "0100050"], "h_tanto": "25"},
@@ -90,13 +87,11 @@ def main():
                             for f in page.frames:
                                 try:
                                     if f.locator('select[name="GYOSYU_TYPE"]').count() > 0:
-                                        # 基本条件設定
                                         f.locator('select[name="GYOSYU_TYPE"]').select_option("00")
                                         if n_type: f.locator('select[name="NYUSATU_TYPE"]').select_option(n_type)
                                         if g_val: f.locator('select[name="GYOSYU"]').select_option(g_val)
                                         if t["h_tanto"]: f.locator('select[name="HACHU_TANTOU_KYOKU"]').select_option(t["h_tanto"])
                                         
-                                        # ★開札予定日(開始)を1ヶ月前にセット
                                         f.locator('select[name="KAISATSU_DATE_f_yyyy"]').select_option(y_str)
                                         f.locator('select[name="KAISATSU_DATE_f_mm"]').select_option(m_str)
                                         f.locator('select[name="KAISATSU_DATE_f_dd"]').select_option(d_str)
@@ -128,16 +123,27 @@ def main():
                             current_rows = target_f.locator("#tBody tr")
                             cells = current_rows.nth(i).locator("td").all()
                             
-                            # 一覧ページからの取得
                             v_kikan = t['name']
                             seko_and_case = cells[0].inner_html().split('<br>')
                             v_seko_no = seko_and_case[0].strip() if len(seko_and_case) > 0 else ""
                             
                             v_gyosyu = cells[1].inner_text().strip()      
                             v_case_name = cells[2].inner_text().strip()    
-                            v_keiyaku = cells[3].inner_text().strip()     # 3: 入札及び契約方法(D列)
-                            v_kaisatsu_list = cells[4].inner_text().strip() # 4: 開札日(L列)
-                            v_status = cells[5].inner_text().strip()      
+                            v_keiyaku = cells[3].inner_text().strip()     
+                            v_kaisatsu_list = cells[4].inner_text().strip() 
+                            
+                            # --- 状態アイコンの判定 ---
+                            v_status = ""
+                            img_element = cells[5].locator("img")
+                            if img_element.count() > 0:
+                                src = img_element.get_attribute("src")
+                                if "CompletionBid" in src: v_status = "入札完了"
+                                elif "CompletionContract" in src: v_status = "契約完了"
+                                elif "BeforeBid" in src: v_status = "入札前"
+                                elif "UnderExamination" in src: v_status = "審査中"
+                                else: v_status = src.split('/')[-1]
+                            else:
+                                v_status = cells[5].inner_text().strip()
                             
                             log(f"  -> [{i+1}/{rows_count}] 詳細取得中: {v_case_name[:20]}...")
                             target_f.evaluate(f"jsBidInfo({i});")
@@ -173,19 +179,10 @@ def main():
                                 nendo_str, tsuki_str = get_nendo_and_tsuki(v_kaisatsu_list)
 
                                 base_data = [
-                                    v_kikan,         # A
-                                    v_seko_no,       # B
-                                    v_gyosyu,        # C
-                                    v_keiyaku,       # D
-                                    f'="{case_id}"',   # E
-                                    v_case_name,     # F
-                                    get_v("場所"),    # G
-                                    format_price(get_v("予定価格")), # H
-                                    rakusatsu_price, # I
-                                    rakusatsu_vender,# J
-                                    format_price(get_v("最低制限価格")), # K
-                                    v_kaisatsu_list, # L
-                                    v_status         # M
+                                    v_kikan, v_seko_no, v_gyosyu, v_keiyaku, f'="{case_id}"',
+                                    v_case_name, get_v("場所"), format_price(get_v("予定価格")),
+                                    rakusatsu_price, rakusatsu_vender, format_price(get_v("最低制限価格")),
+                                    v_kaisatsu_list, v_status
                                 ]
                                 
                                 bidders = [""] * 20
@@ -197,13 +194,11 @@ def main():
                                         bidders[k*2], bidders[k*2+1] = valid[k][0], valid[k][1]
                                 except: pass
 
-                                all_columns = base_data + bidders + [nendo_str, tsuki_str]
-                                all_data_rows.append(all_columns)
-                                
+                                all_data_rows.append(base_data + bidders + [nendo_str, tsuki_str])
                                 detail_f.evaluate("jsBack();")
                                 time.sleep(10)
 
-            # データが空(0件)でも、最終確認日時の更新のために必ず送信する
+            # データが空でも送信（GAS側で日時を更新するため）
             send_to_spreadsheet(all_data_rows)
 
         except Exception as e:
