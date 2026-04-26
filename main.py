@@ -4,7 +4,7 @@ import re
 import json
 import os
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def log(message):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -46,6 +46,12 @@ def send_to_spreadsheet(data):
         log(f"送信エラー: {e}")
 
 def main():
+    # 検索用の日付（実行日の30日前）を計算
+    one_month_ago = datetime.now() - timedelta(days=30)
+    y_str = str(one_month_ago.year)
+    m_str = str(one_month_ago.month)
+    d_str = str(one_month_ago.day)
+
     targets = [
         {"name": "熊本県", "code": "0100", "n_types": ["1002011", "1002012"], "g_list": ["0100010", "0100130", "0100050"], "h_tanto": "25"},
         {"name": "南小国町", "code": "0423", "n_types": [""], "g_list": [""], "h_tanto": ""},
@@ -56,7 +62,7 @@ def main():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent="Mozilla/5.0...", locale="ja-JP")
+        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", locale="ja-JP")
         page = context.new_page()
 
         try:
@@ -84,10 +90,17 @@ def main():
                             for f in page.frames:
                                 try:
                                     if f.locator('select[name="GYOSYU_TYPE"]').count() > 0:
+                                        # 基本条件設定
                                         f.locator('select[name="GYOSYU_TYPE"]').select_option("00")
                                         if n_type: f.locator('select[name="NYUSATU_TYPE"]').select_option(n_type)
                                         if g_val: f.locator('select[name="GYOSYU"]').select_option(g_val)
                                         if t["h_tanto"]: f.locator('select[name="HACHU_TANTOU_KYOKU"]').select_option(t["h_tanto"])
+                                        
+                                        # ★開札予定日(開始)を1ヶ月前にセット
+                                        f.locator('select[name="KAISATSU_DATE_f_yyyy"]').select_option(y_str)
+                                        f.locator('select[name="KAISATSU_DATE_f_mm"]').select_option(m_str)
+                                        f.locator('select[name="KAISATSU_DATE_f_dd"]').select_option(d_str)
+
                                         f.locator('select[name="ListCount"]').select_option("100")
                                         f.evaluate("jsSearch();")
                                         search_started = True; break
@@ -115,18 +128,16 @@ def main():
                             current_rows = target_f.locator("#tBody tr")
                             cells = current_rows.nth(i).locator("td").all()
                             
-                            # --- HP構造に基づく取得 (インデックス修正) ---
+                            # 一覧ページからの取得
                             v_kikan = t['name']
-                            
-                            # cells[0] は「施行番号<br>電子入札番号」
                             seko_and_case = cells[0].inner_html().split('<br>')
                             v_seko_no = seko_and_case[0].strip() if len(seko_and_case) > 0 else ""
                             
-                            v_gyosyu = cells[1].inner_text().strip()      # 1: 業種
-                            v_case_name = cells[2].inner_text().strip()    # 2: 工事・業務名
-                            v_keiyaku = cells[3].inner_text().strip()     # 3: 入札及び契約方法 (D列)
-                            v_kaisatsu_list = cells[4].inner_text().strip() # 4: 開札(予定)日 (L列)
-                            v_status = cells[5].inner_text().strip()      # 5: 状態 (M列)
+                            v_gyosyu = cells[1].inner_text().strip()      
+                            v_case_name = cells[2].inner_text().strip()    
+                            v_keiyaku = cells[3].inner_text().strip()     # 3: 入札及び契約方法(D列)
+                            v_kaisatsu_list = cells[4].inner_text().strip() # 4: 開札日(L列)
+                            v_status = cells[5].inner_text().strip()      
                             
                             log(f"  -> [{i+1}/{rows_count}] 詳細取得中: {v_case_name[:20]}...")
                             target_f.evaluate(f"jsBidInfo({i});")
@@ -159,27 +170,24 @@ def main():
                                 except: pass
 
                                 case_id = get_v("電子入札案件番号")
-                                # 年度・月の計算には一覧から取得した日付を使用
                                 nendo_str, tsuki_str = get_nendo_and_tsuki(v_kaisatsu_list)
 
-                                # 基本データ（13項目）
                                 base_data = [
-                                    v_kikan,         # A: 自治体名
-                                    v_seko_no,       # B: 施行番号
-                                    v_gyosyu,        # C: 業種
-                                    v_keiyaku,       # D: 契約方法
-                                    f'="{case_id}"',   # E: 電子入札案件番号
-                                    v_case_name,     # F: 工事・業務名
-                                    get_v("場所"),    # G: 場所
-                                    format_price(get_v("予定価格")), # H: 予定価格
-                                    rakusatsu_price, # I: 落札価格
-                                    rakusatsu_vender,# J: 落札業者
-                                    format_price(get_v("最低制限価格")), # K: 最低制限価格
-                                    v_kaisatsu_list, # L: 開札日
-                                    v_status         # M: 状態
+                                    v_kikan,         # A
+                                    v_seko_no,       # B
+                                    v_gyosyu,        # C
+                                    v_keiyaku,       # D
+                                    f'="{case_id}"',   # E
+                                    v_case_name,     # F
+                                    get_v("場所"),    # G
+                                    format_price(get_v("予定価格")), # H
+                                    rakusatsu_price, # I
+                                    rakusatsu_vender,# J
+                                    format_price(get_v("最低制限価格")), # K
+                                    v_kaisatsu_list, # L
+                                    v_status         # M
                                 ]
                                 
-                                # 業者情報（20列分固定）
                                 bidders = [""] * 20
                                 try:
                                     bid_txt = detail_txt.split("摘要")[-1].split("備考")[0]
@@ -189,16 +197,14 @@ def main():
                                         bidders[k*2], bidders[k*2+1] = valid[k][0], valid[k][1]
                                 except: pass
 
-                                # 全てを連結
                                 all_columns = base_data + bidders + [nendo_str, tsuki_str]
                                 all_data_rows.append(all_columns)
                                 
                                 detail_f.evaluate("jsBack();")
                                 time.sleep(10)
-                                time.sleep(2)
 
-            
-                send_to_spreadsheet(all_data_rows)
+            # データが空(0件)でも、最終確認日時の更新のために必ず送信する
+            send_to_spreadsheet(all_data_rows)
 
         except Exception as e:
             log(f"エラー発生: {e}")
