@@ -46,7 +46,7 @@ def send_to_spreadsheet(data):
 
 def main():
     # 検索用の日付（実行日の30日前）を計算
-    one_month_ago = datetime.now() - timedelta(days=30)
+    one_month_ago = datetime.now() - timedelta(days=180)
     y_str, m_str, d_str = str(one_month_ago.year), str(one_month_ago.month), str(one_month_ago.day)
 
     targets = [
