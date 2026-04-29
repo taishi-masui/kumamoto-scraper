@@ -2,14 +2,11 @@ name: Daily Construction Data Update
 
 on:
   schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+    - cron: '0 0 * * *'  # 毎日日本時間午前9時に実行
+  workflow_dispatch:      # 手動実行ボタン
 
-# ここを一番手厚い権限に設定します
 permissions:
-  contents: write
-  actions: write
-  pull-requests: write
+  contents: write         # 書き込み権限
 
 jobs:
   build:
@@ -18,7 +15,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # 権限を保持したまま次のステップへ渡す
           persist-credentials: true
 
       - name: Set up Python
@@ -37,11 +33,10 @@ jobs:
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
         run: python main.py
 
-      # 60日制限対策（ここを修正）
-      - name: Keepalive Workflow
-        uses: gautamkrishnar/keepalive-workflow@v2
-        with:
-          use_api: true
-          static_list: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # ★この1行を最後に追加
+      # ★外部ツールを使わず、直接「延命」コマンドを実行する
+      - name: Keepalive (Manual)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "Keepalive (automatically committed)"
+          git push
