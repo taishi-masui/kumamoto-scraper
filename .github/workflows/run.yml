@@ -37,9 +37,11 @@ jobs:
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
         run: python main.py
 
-      # 60日制限対策（自動延命処理）
+      # 60日制限対策（ここを修正）
       - name: Keepalive Workflow
         uses: gautamkrishnar/keepalive-workflow@v2
         with:
           use_api: true
           static_list: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # ★この1行を最後に追加
