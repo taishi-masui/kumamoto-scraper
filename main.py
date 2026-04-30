@@ -44,7 +44,7 @@ def send_to_spreadsheet(data):
         log(f"送信エラー: {e}")
 
 def main():
-    one_month_ago = datetime.now() - timedelta(days=180)
+    one_month_ago = datetime.now() - timedelta(days=60)
     y_str, m_str, d_str = str(one_month_ago.year), str(one_month_ago.month), str(one_month_ago.day)
 
     targets = [
