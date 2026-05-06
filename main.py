@@ -44,6 +44,7 @@ def send_to_spreadsheet(data):
         log(f"送信エラー: {e}")
 
 def main():
+    # 180日前を設定
     one_month_ago = datetime.now() - timedelta(days=180)
     y_str, m_str, d_str = str(one_month_ago.year), str(one_month_ago.month), str(one_month_ago.day)
 
@@ -53,7 +54,7 @@ def main():
         {"name": "小国町", "code": "0424", "n_types": [""], "g_list": ["0100010", "0100130", "0100050"], "h_tanto": ""}
     ]
     
-    all_data_dicts = [] # 辞書形式で格納
+    all_data_dicts = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -98,7 +99,6 @@ def main():
                                 except: continue
                             if search_started: break
 
-                        # ページ送り対応のループ
                         while True:
                             target_f = None
                             for _ in range(10):
@@ -132,7 +132,7 @@ def main():
                                     else: v_status = src.split('/')[-1]
                                 else: v_status = cells[5].inner_text().strip()
 
-                                log(f"    [{i+1}/{rows_count}] 詳細取得: {v_case_name[:15]}...")
+                                log(f"    [{i+1}/{rows_count}] 詳細取得中...")
                                 target_f.evaluate(f"jsBidInfo({i});")
                                 time.sleep(12) 
                                 
@@ -147,7 +147,6 @@ def main():
                                         m = re.search(rf"{label}\s*([^\n\r]+)", detail_txt)
                                         return m.group(1).strip() if m else ""
 
-                                    # 業者情報抽出
                                     rakusatsu_p, rakusatsu_v = "", ""
                                     try:
                                         for r in detail_f.locator("tr").all():
@@ -158,21 +157,25 @@ def main():
                                                 break
                                     except: pass
 
-                                    # 辞書形式でデータを構築（GAS側の4行目見出しと一致させる）
                                     nendo, tsuki = get_nendo_and_tsuki(v_kaisatsu)
                                     row_dict = {
-                                        "自治体名": t['name'], "施行番号/案件番号": v_seko_no,
-                                        "業種": v_gyosyu, "契約区分": v_keiyaku,
+                                        "自治体名": t['name'],
+                                        "施行番号/案件番号": v_seko_no,
+                                        "業種 種別": v_gyosyu,
+                                        "契約方法": v_keiyaku,
                                         "電子入札案件番号": f'="{get_v("電子入札案件番号")}"',
-                                        "案件名": v_case_name, "場所": get_v("場所"),
+                                        "工事・業務名": v_case_name,
+                                        "場所": get_v("場所"),
                                         "予定価格": format_price(get_v("予定価格")),
-                                        "落札価格": rakusatsu_p, "落札業者": rakusatsu_v,
+                                        "落札価格": rakusatsu_p,
+                                        "落札業者": rakusatsu_v,
                                         "最低制限価格": format_price(get_v("最低制限価格")),
-                                        "開札日": v_kaisatsu, "状態": v_status,
-                                        "年度": nendo, "月": tsuki
+                                        "開札（予定）日": v_kaisatsu,
+                                        "年度": nendo,
+                                        "月": tsuki,
+                                        "状態": v_status
                                     }
 
-                                    # 業者リストを辞書に追加
                                     try:
                                         bid_part = detail_txt.split("摘要")[-1].split("備考")[0]
                                         matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_part)
@@ -186,7 +189,6 @@ def main():
                                     detail_f.evaluate("jsBack();")
                                     time.sleep(8)
                             
-                            # ページ送り判定
                             next_img = target_f.locator("img[src*='NextPage.gif']")
                             if next_img.count() > 0:
                                 log("  -> 次ページへ移動")
