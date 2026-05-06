@@ -44,6 +44,7 @@ def send_to_spreadsheet(data):
         log(f"送信エラー: {e}")
 
 def main():
+    # 180日前からのデータを対象
     one_month_ago = datetime.now() - timedelta(days=1)
     y_str, m_str, d_str = str(one_month_ago.year), str(one_month_ago.month), str(one_month_ago.day)
 
@@ -147,7 +148,8 @@ def main():
 
                                     rakusatsu_p, rakusatsu_v = "", ""
                                     try:
-                                        for r in detail_f.locator("tr").all():
+                                        rows_data = detail_f.locator("tr").all()
+                                        for r in rows_data:
                                             tds = r.locator("td").all()
                                             if len(tds) >= 3 and "落札" in tds[2].inner_text():
                                                 rakusatsu_v = tds[0].inner_text().strip()
@@ -158,7 +160,7 @@ def main():
                                     case_id = find_v("電子入札案件番号")
                                     nendo, tsuki = get_nendo_and_tsuki(v_kaisatsu)
 
-                                    # 送信データの作成（コピペいただいた列名に1文字も違わず合わせました）
+                                    # 送信データの作成（提示いただいた列名に完全に合わせました）
                                     row_dict = {
                                         "自治体名": t['name'],
                                         "施行番号/案件番号": v_seko_no,
@@ -173,10 +175,11 @@ def main():
                                         "最低制限価格": format_price(find_v("最低制限価格")),
                                         "開札（予定）日": v_kaisatsu,
                                         "年度": nendo,
-                                        "月": tsuki
+                                        "月": tsuki,
+                                        "状態": v_status
                                     }
 
-                                    # 業者・金額情報の解析（シートの変則的な名前に対応）
+                                    # 業者・金額情報の解析（業者1, 金額1... 業者10, 金額10）
                                     try:
                                         bid_parts = detail_txt.split("摘要")
                                         if len(bid_parts) > 1:
@@ -184,14 +187,10 @@ def main():
                                             matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_txt)
                                             valid = [[m[0].strip(), format_price(m[1])] for m in matches if not m[0].strip().replace(',','').isdigit()]
                                             
-                                            # 金額1, 業者2, 金額2, 業者3... というシートの並び順に対応
                                             for k in range(10):
                                                 idx = k + 1
-                                                if k == 0:
-                                                    row_dict["金額1"] = valid[0][1] if len(valid) > 0 else ""
-                                                else:
-                                                    row_dict[f"業者{idx}"] = valid[k][0] if k < len(valid) else ""
-                                                    row_dict[f"金額{idx}"] = valid[k][1] if k < len(valid) else ""
+                                                row_dict[f"業者{idx}"] = valid[k][0] if k < len(valid) else ""
+                                                row_dict[f"金額{idx}"] = valid[k][1] if k < len(valid) else ""
                                     except: pass
 
                                     all_data_dicts.append(row_dict)
