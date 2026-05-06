@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write         # 書き込み権限
 
+# Node.js 20の警告を消去するための設定
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,6 +20,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: true
+          # 衝突回避のため最新の状態を取得
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -33,10 +39,10 @@ jobs:
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
         run: python main.py
 
-      # ★外部ツールを使わず、直接「延命」コマンドを実行する
       - name: Keepalive (Manual)
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git commit --allow-empty -m "Keepalive (automatically committed)"
-          git push
+          # --force を付与して以前の衝突エラーを強制解消し、同期させる
+          git push origin main --force
