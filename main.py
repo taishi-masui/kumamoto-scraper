@@ -202,21 +202,27 @@ def main():
 
                                 log(f"    [{i+1}/{rows_count}] 詳細取得中...")
                                 target_f.evaluate(f"jsBidInfo({i});")
-                                time.sleep(5) 
                                 
-                                # ↓↓↓【ここを確実に詳細画面を掴むループに修正】↓↓↓
+                                # ★フレームを捕まえるまで最大20秒間、画面内の全フレームのURLを監視しながら待つ
                                 detail_f = None
-                                for _ in range(10): # 最大10秒間、フレームが出現するのを粘り強く待つ
+                                for loop_cnt in range(20):
+                                    time.sleep(1)
+                                    # Playwrightに現在の最新の全フレームを強制リフレッシュして取得させる
+                                    page.evaluate("() => {}") 
                                     for f in page.frames:
                                         if "PJC503Servlet" in f.url:
-                                            detail_f = f; break
-                                    if detail_f: break
-                                    time.sleep(1)
-
+                                            detail_f = f
+                                            break
+                                    if detail_f:
+                                        break
+                                
+                                # もし見つからなければ、今画面に見えている全フレームのURLをログに吐き出す（原因究明のため）
                                 if not detail_f:
-                                    log("      [警告] 詳細画面のフレームが見つからなかったため、スキップされました")
+                                    urls = [f.url for f in page.frames if f.url]
+                                    log(f"      [警告] 詳細画面が見つかりません。現在あるフレームURL一覧: {urls}")
                                     continue
 
+                                # ─── 詳細画面が捕まえられた場合、その場で即データ取得 ───
                                 if detail_f:
                                     detail_txt = detail_f.evaluate("() => document.body.innerText")
                                     def get_v(label):
@@ -227,15 +233,13 @@ def main():
                                     try:
                                         for r in detail_f.locator("tr").all():
                                             tds = r.locator("td").all()
-                                            # ↓セルの個数が確実に3つ以上あるか、かつ「落札」の文字があるか、を慎重に判定
                                             if len(tds) >= 3:
                                                 try:
                                                     if "落札" in tds[2].inner_text():
                                                         rakusatsu_v = tds[0].inner_text().strip()
                                                         rakusatsu_p = format_price(tds[1].inner_text().strip())
                                                         break
-                                                except:
-                                                    continue
+                                                except: continue
                                     except: pass
 
                                     nendo, tsuki = get_nendo_and_tsuki(v_kaisatsu)
@@ -257,16 +261,26 @@ def main():
                                         "状態": v_status
                                     }
 
+                                    # 業者名と金額の抽出
                                     try:
-                                        bid_part = detail_txt.split("摘要")[-1].split("備考")[0]
-                                        matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_part)
-                                        valid = [[m[0].strip(), format_price(m[1])] for m in matches if not m[0].strip().replace(',','').isdigit()]
-                                        for k in range(min(len(valid), 10)):
-                                            row_dict[f"業者{k+1}"] = valid[k][0]
-                                            row_dict[f"金額{k+1}"] = valid[k][1]
+                                        if "摘要" in detail_txt:
+                                            bid_part = detail_txt.split("摘要")[-1]
+                                            if "備考" in bid_part:
+                                                bid_part = bid_part.split("備考")[0]
+                                            matches = re.findall(r"([^\t\n\r]+?)\s+([0-9,]{4,})", bid_part)
+                                            if matches:
+                                                valid = [[m[0].strip(), format_price(m[1])] for m in matches if not m[0].strip().replace(',','').isdigit()]
+                                                for k in range(min(len(valid), 10)):
+                                                    row_dict[f"業者{k+1}"] = valid[k][0]
+                                                    row_dict[f"金額{k+1}"] = valid[k][1]
                                     except: pass
 
+                                    # ★【ご提案の機能】その場で即、取得した中身を全出力
+                                    log(f"      ⚡ [即時出力成功] 番号:{row_dict['施行番号/案件番号']} | 状態:{row_dict['状態']} | 案件名:{row_dict['工事・業務名'][:20]}...")
+
                                     all_data_dicts.append(row_dict)
+                                    
+                                    # 元の画面に戻る（ポップアップが消えるのを待つ）
                                     detail_f.evaluate("jsBack();")
                                     time.sleep(8)
                             
