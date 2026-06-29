@@ -203,17 +203,23 @@ def main():
                                 log(f"    [{i+1}/{rows_count}] 詳細取得中...")
                                 target_f.evaluate(f"jsBidInfo({i});")
                                 
-                                # ★フレームを捕まえるまで最大20秒間、画面内の全フレームのURLを監視しながら待つ
+                                # ★フレームを捕まえるまで最大20秒間、URLと中身(body)のロードを同時に監視
                                 detail_f = None
                                 for loop_cnt in range(20):
                                     time.sleep(1)
-                                    # Playwrightに現在の最新の全フレームを強制リフレッシュして取得させる
                                     page.evaluate("() => {}") 
                                     for f in page.frames:
                                         if "PJC503Servlet" in f.url:
-                                            detail_f = f
-                                            break
+                                            try:
+                                                # URLだけでなく、画面の中身(body)がちゃんと生まれているかを確認
+                                                if f.evaluate("() => document.body !== null"):
+                                                    detail_f = f
+                                                    break
+                                            except:
+                                                pass
                                     if detail_f:
+                                        # 念のため、中身が確定したあとさらに0.5秒だけ完全に落ち着かせます
+                                        time.sleep(0.5)
                                         break
                                 
                                 # もし見つからなければ、今画面に見えている全フレームのURLをログに吐き出す（原因究明のため）
