@@ -203,10 +203,13 @@ def main():
                                 log(f"    [{i+1}/{rows_count}] 詳細取得中...")
                                 target_f.evaluate(f"jsBidInfo({i});")
                                 
-                                # ★フレームを捕まえるまで最大20秒間、URLと中身(body)のロードを同時に監視
+                                # ★まずループに入る前に「一律で15秒」どっしり待つ（これで中身はほぼ完成する）
+                                time.sleep(15)
+                                
+                                # ★ここからは1秒ずつ「念のための確認＆強制リフレッシュ」を最大20回まわす
                                 detail_f = None
                                 for loop_cnt in range(20):
-                                    time.sleep(1)
+                                    time.sleep(1) # ← ここを「1秒」にするのが大渋滞を防ぐコツ！
                                     page.evaluate("() => {}") 
                                     for f in page.frames:
                                         if "PJC503Servlet" in f.url:
@@ -221,7 +224,7 @@ def main():
                                         # 念のため、中身が確定したあとさらに0.5秒だけ完全に落ち着かせます
                                         time.sleep(0.5)
                                         break
-                                
+                                        
                                 # もし見つからなければ、今画面に見えている全フレームのURLをログに吐き出す（原因究明のため）
                                 if not detail_f:
                                     urls = [f.url for f in page.frames if f.url]
