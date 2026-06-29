@@ -127,20 +127,41 @@ def main():
                         time.sleep(3)
                         menu_f.evaluate("jsLink(1,1);")
                         
+                      # ─── 検索条件の入力 ───
                         search_started = False
                         for _ in range(15): 
                             time.sleep(2)
                             for f in page.frames:
                                 try:
                                     if f.locator('select[name="GYOSYU_TYPE"]').count() > 0:
+                                        # 1. 業種分類を工事(00)にする
                                         f.locator('select[name="GYOSYU_TYPE"]').select_option("00")
-                                        if n_type: f.locator('select[name="NYUSATU_TYPE"]').select_option(n_type)
-                                        if g_val: f.locator('select[name="GYOSYU"]').select_option(g_val)
-                                        if t["h_tanto"]: f.locator('select[name="HACHU_TANTOU_KYOKU"]').select_option(t["h_tanto"])
+                                        time.sleep(1)
+                                        
+                                        # 2. 先に表示件数を100件にする（これによるリセットを先に発生させる）
+                                        f.locator('select[name="ListCount"]').select_option("100")
+                                        time.sleep(2) # 画面の再読み込みをしっかり待つ
+                                        
+                                        # 3. 入札方式を選択
+                                        if n_type: 
+                                            f.locator('select[name="NYUSATU_TYPE"]').select_option(n_type)
+                                        
+                                        # 4. 業種種別を選択（選択肢が読み込まれるのを待ってから選ぶ）
+                                        if g_val: 
+                                            f.locator(f'select[name="GYOSYU"] option[value="{g_val}"]').wait_for(state="attached")
+                                            f.locator('select[name="GYOSYU"]').select_option(g_val)
+                                        
+                                        # 5. 発注担当部局を選択（元の仕様を維持）
+                                        if t["h_tanto"]: 
+                                            f.locator(f'select[name="HACHU_TANTOU_KYOKU"] option[value="{t["h_tanto"]}"]').wait_for(state="attached")
+                                            f.locator('select[name="HACHU_TANTOU_KYOKU"]').select_option(t["h_tanto"])
+                                        
+                                        # 6. 日付を選択
                                         f.locator('select[name="KAISATSU_DATE_f_yyyy"]').select_option(y_str)
                                         f.locator('select[name="KAISATSU_DATE_f_mm"]').select_option(m_str)
                                         f.locator('select[name="KAISATSU_DATE_f_dd"]').select_option(d_str)
-                                        f.locator('select[name="ListCount"]').select_option("100")
+                                        
+                                        # 検索実行
                                         f.evaluate("jsSearch();")
                                         search_started = True; break
                                 except: continue
