@@ -202,12 +202,20 @@ def main():
 
                                 log(f"    [{i+1}/{rows_count}] 詳細取得中...")
                                 target_f.evaluate(f"jsBidInfo({i});")
-                                time.sleep(12) 
+                                time.sleep(5) 
                                 
+                                # ↓↓↓【ここを確実に詳細画面を掴むループに修正】↓↓↓
                                 detail_f = None
-                                for f in page.frames:
-                                    if "PJC503Servlet" in f.url:
-                                        detail_f = f; break
+                                for _ in range(10): # 最大10秒間、フレームが出現するのを粘り強く待つ
+                                    for f in page.frames:
+                                        if "PJC503Servlet" in f.url:
+                                            detail_f = f; break
+                                    if detail_f: break
+                                    time.sleep(1)
+
+                                if not detail_f:
+                                    log("      [警告] 詳細画面のフレームが見つからなかったため、スキップされました")
+                                    continue
 
                                 if detail_f:
                                     detail_txt = detail_f.evaluate("() => document.body.innerText")
