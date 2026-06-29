@@ -45,7 +45,7 @@ def send_to_spreadsheet(data):
 
 def main():
     # 180日前を設定
-    one_month_ago = datetime.now() - timedelta(days=1)
+    one_month_ago = datetime.now() - timedelta(days=0)
     y_str, m_str, d_str = str(one_month_ago.year), str(one_month_ago.month), str(one_month_ago.day)
 
     targets = [
