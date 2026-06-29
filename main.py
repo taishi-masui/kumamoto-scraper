@@ -243,6 +243,21 @@ def main():
                                 time.sleep(10)
                             else: break
 
+            # ↓↓↓【テスト用：ここから追加】↓↓↓
+            log("=" * 80)
+            log("★【テスト出力】取得データ一覧（GAS送信直前）")
+            log(f"総件数: {len(all_data_dicts)} 件")
+            log("=" * 80)
+            for idx, item in enumerate(all_data_dicts, 1):
+                # 見やすく整形して1件ずつログに出力
+                log(f"[{idx}] 自治体:{item['自治体名']} | 番号:{item['施行番号/案件番号']} | 日付:{item['開札（予定）日']} | 状態:{item['状態']}")
+                log(f"    案件名 : {item['工事・業務名']}")
+                log(f"    場所   : {item['場所']}")
+                log("-" * 80)
+            log("=" * 80)
+            # ↑↑↑【テスト用：ここまで追加】↑↑↑
+
+            
             send_to_spreadsheet(all_data_dicts)
 
         except Exception as e:
