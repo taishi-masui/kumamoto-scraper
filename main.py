@@ -219,10 +219,15 @@ def main():
                                     try:
                                         for r in detail_f.locator("tr").all():
                                             tds = r.locator("td").all()
-                                            if len(tds) >= 3 and "落札" in tds[2].inner_text():
-                                                rakusatsu_v = tds[0].inner_text().strip()
-                                                rakusatsu_p = format_price(tds[1].inner_text().strip())
-                                                break
+                                            # ↓セルの個数が確実に3つ以上あるか、かつ「落札」の文字があるか、を慎重に判定
+                                            if len(tds) >= 3:
+                                                try:
+                                                    if "落札" in tds[2].inner_text():
+                                                        rakusatsu_v = tds[0].inner_text().strip()
+                                                        rakusatsu_p = format_price(tds[1].inner_text().strip())
+                                                        break
+                                                except:
+                                                    continue
                                     except: pass
 
                                     nendo, tsuki = get_nendo_and_tsuki(v_kaisatsu)
