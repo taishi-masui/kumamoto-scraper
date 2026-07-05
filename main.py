@@ -46,7 +46,7 @@ def send_to_spreadsheet(data):
 
 def main():
     # 180日前を設定
-    one_month_ago = datetime.now() - timedelta(days=0)
+    one_month_ago = datetime.now() - timedelta(days=180)
     y_str, m_str, d_str = str(one_month_ago.year), str(one_month_ago.month), str(one_month_ago.day)
 
     targets = [
@@ -142,7 +142,7 @@ def main():
                             for i in range(rows_count):
                                 cells = target_f.locator("#tBody tr").nth(i).locator("td").all()
                                 
-                                # ★【修正】改行で分割し、1段目の「施工番号」だけを確実に抜き出します
+                                # ★【変更箇所1】より確実に1段目の「施工番号」だけを狙い撃ちで切り出す処理
                                 full_id_text = cells[0].inner_text().strip()
                                 v_seko_no = full_id_text.split('\n')[0].strip()
                                 
@@ -165,10 +165,10 @@ def main():
                                 log(f"    [{i+1}/{rows_count}] 詳細取得中...")
                                 target_f.evaluate(f"jsBidInfo({i});")
                                 
-                                # ★まずループに入る前に「一律で15秒」どっしり待つ（これで大量処理時の遅延を完全吸収）
+                                # 一律で15秒どっしり待つ
                                 time.sleep(15)
                                 
-                                # ★ここからは1秒ずつ「念のための確認＆強制リフレッシュ」を最大20回まわす
+                                # 1秒ずつの「念のための確認＆強制リフレッシュ」
                                 detail_f = None
                                 for loop_cnt in range(20):
                                     time.sleep(1)
@@ -185,7 +185,6 @@ def main():
                                         time.sleep(0.5)
                                         break
                                         
-                                # もし見つからなければ、原因究明のためURL一覧を出してスキップ
                                 if not detail_f:
                                     urls = [f.url for f in page.frames if f.url]
                                     log(f"      [警告] 詳細画面が見つかりません。現在あるフレームURL一覧: {urls}")
@@ -212,6 +211,8 @@ def main():
                                     except: pass
 
                                     nendo, tsuki = get_nendo_and_tsuki(v_kaisatsu)
+                                    
+                                    # ★【現状維持】送る順番・データの形は元の仕様のまま固定にしてあります
                                     row_dict = {
                                         "自治体名": t['name'],
                                         "施行番号/案件番号": v_seko_no,
@@ -248,7 +249,6 @@ def main():
 
                                     all_data_dicts.append(row_dict)
                                     
-                                    # 元の画面に戻る（ポップアップが消えるのを待つ）
                                     detail_f.evaluate("jsBack();")
                                     time.sleep(8)
                             
@@ -276,12 +276,11 @@ def main():
                 log("-" * 80)
             log("=" * 80)
             
-            # GASへ送信
             send_to_spreadsheet(all_data_dicts)
 
         except Exception as e:
             log(f"エラー発生: {e}")
-            # ★【修正】エラーが起きた場合は、Actionsを確実に赤ランプ（失敗）にする
+            # ★【変更箇所2】エラーが起きた場合は、Actionsを確実に赤ランプ（失敗）にする
             sys.exit(1)
         finally:
             browser.close()
