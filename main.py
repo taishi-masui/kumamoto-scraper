@@ -3,6 +3,7 @@ import time
 import re
 import json
 import os
+import sys
 import urllib.request
 from datetime import datetime, timedelta
 
@@ -45,7 +46,7 @@ def send_to_spreadsheet(data):
 
 def main():
     # 180日前を設定
-    one_month_ago = datetime.now() - timedelta(days=180)
+    one_month_ago = datetime.now() - timedelta(days=0)
     y_str, m_str, d_str = str(one_month_ago.year), str(one_month_ago.month), str(one_month_ago.day)
 
     targets = [
@@ -54,58 +55,15 @@ def main():
         {"name": "小国町", "code": "0424", "n_types": [""], "g_list": ["0100010", "0100130", "0100050"], "h_tanto": ""},
         {"name": "菊池市","code": "0210","n_types": ["2002027"],"g_list": ["0100010", "0100130"],"h_tanto": ""}
     ]
-# =========================================================================
-    # 【今後の検索条件追加のためのリファレンス（設定ガイド）】
-    # 
-    # 1. 入札方式コード（n_types）
-    #    - "1002011" : 一般競争入札
-    #    - "2002022" : 公募型指名競争入札（工事）
-    #    - "2002027" : 通常型指名競争入札
-    #    - "2002028" : 公募型指名競争入札（委託）
-    #    - "3002051" : 随意契約
-    #    - "3002055" : 公募型プロポーザル
-    #    - "3002057" : 指名プロポーザル
-    # 
-    # 2. 業種分類コード（GYOSYU_TYPE ※システム内部で自動判定されるためtargets定義は不要）
-    #    - "00" : 工事
-    #    - "01" : コンサル
-    # 
-    # 3. 業種種別コード（g_list）※「工事」選択時
-    #    - "0100010" : 土木一式工事
-    #    - "0100020" : 建築一式工事
-    #    - "0100050" : とび・土工・コンクリート工事
-    #    - "0100080" : 電気工事
-    #    - "0100090" : 管工事
-    #    - "0100130" : 舗装工事
-    #    - "0100220" : 電気通信工事
-    #    - "0100260" : 水道施設工事
-    #    - "0100300" : 解体工事
-    #
-    # 4. 自治体コード（code）※URLの「kikan_no=XXXX」の4桁の数字
-    #    - "0100" : 熊本県
-    #    - "0201" : 熊本市
-    #    - "0202" : 八代市
-    #    - "0203" : 人吉市
-    #    - "0204" : 荒尾市
-    #    - "0205" : 水俣市
-    #    - "0206" : 玉名市
-    #    - "0207" : 山鹿市
-    #    - "0210" : 菊池市
-    #    - "0211" : 宇土市
-    #    - "0212" : 上天草市
-    #    - "0213" : 宇城市
-    #    - "0214" : 阿蘇市
-    #    - "0215" : 天草市
-    #    - "0216" : 合志市
-    #    - "0423" : 南小国町
-    #    - "0424" : 小国町
-    # =========================================================================
     
     all_data_dicts = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", locale="ja-JP")
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", 
+            locale="ja-JP"
+        )
         page = context.new_page()
 
         try:
@@ -127,7 +85,7 @@ def main():
                         time.sleep(3)
                         menu_f.evaluate("jsLink(1,1);")
                         
-                      # ─── 検索条件の入力 ───
+                        # ─── 検索条件の入力 ───
                         search_started = False
                         for _ in range(15): 
                             time.sleep(2)
@@ -138,20 +96,20 @@ def main():
                                         f.locator('select[name="GYOSYU_TYPE"]').select_option("00")
                                         time.sleep(1)
                                         
-                                        # 2. 先に表示件数を100件にする（これによるリセットを先に発生させる）
+                                        # 2. 先に表示件数を100件にする
                                         f.locator('select[name="ListCount"]').select_option("100")
-                                        time.sleep(2) # 画面の再読み込みをしっかり待つ
+                                        time.sleep(2)
                                         
                                         # 3. 入札方式を選択
                                         if n_type: 
                                             f.locator('select[name="NYUSATU_TYPE"]').select_option(n_type)
                                         
-                                        # 4. 業種種別を選択（選択肢が読み込まれるのを待ってから選ぶ）
+                                        # 4. 業種種別を選択
                                         if g_val: 
                                             f.locator(f'select[name="GYOSYU"] option[value="{g_val}"]').wait_for(state="attached")
                                             f.locator('select[name="GYOSYU"]').select_option(g_val)
                                         
-                                        # 5. 発注担当部局を選択（元の仕様を維持）
+                                        # 5. 発注担当部局を選択
                                         if t["h_tanto"]: 
                                             f.locator(f'select[name="HACHU_TANTOU_KYOKU"] option[value="{t["h_tanto"]}"]').wait_for(state="attached")
                                             f.locator('select[name="HACHU_TANTOU_KYOKU"]').select_option(t["h_tanto"])
@@ -183,7 +141,11 @@ def main():
                             rows_count = target_f.locator("#tBody tr").count()
                             for i in range(rows_count):
                                 cells = target_f.locator("#tBody tr").nth(i).locator("td").all()
-                                v_seko_no = cells[0].inner_html().split('<br>')[0].strip()
+                                
+                                # ★【修正】改行で分割し、1段目の「施工番号」だけを確実に抜き出します
+                                full_id_text = cells[0].inner_text().strip()
+                                v_seko_no = full_id_text.split('\n')[0].strip()
+                                
                                 v_gyosyu = cells[1].inner_text().strip()      
                                 v_case_name = cells[2].inner_text().strip()    
                                 v_keiyaku = cells[3].inner_text().strip()     
@@ -203,29 +165,27 @@ def main():
                                 log(f"    [{i+1}/{rows_count}] 詳細取得中...")
                                 target_f.evaluate(f"jsBidInfo({i});")
                                 
-                                # ★まずループに入る前に「一律で15秒」どっしり待つ（これで中身はほぼ完成する）
+                                # ★まずループに入る前に「一律で15秒」どっしり待つ（これで大量処理時の遅延を完全吸収）
                                 time.sleep(15)
                                 
                                 # ★ここからは1秒ずつ「念のための確認＆強制リフレッシュ」を最大20回まわす
                                 detail_f = None
                                 for loop_cnt in range(20):
-                                    time.sleep(1) # ← ここを「1秒」にするのが大渋滞を防ぐコツ！
+                                    time.sleep(1)
                                     page.evaluate("() => {}") 
                                     for f in page.frames:
                                         if "PJC503Servlet" in f.url:
                                             try:
-                                                # URLだけでなく、画面の中身(body)がちゃんと生まれているかを確認
                                                 if f.evaluate("() => document.body !== null"):
                                                     detail_f = f
                                                     break
                                             except:
                                                 pass
                                     if detail_f:
-                                        # 念のため、中身が確定したあとさらに0.5秒だけ完全に落ち着かせます
                                         time.sleep(0.5)
                                         break
                                         
-                                # もし見つからなければ、今画面に見えている全フレームのURLをログに吐き出す（原因究明のため）
+                                # もし見つからなければ、原因究明のためURL一覧を出してスキップ
                                 if not detail_f:
                                     urls = [f.url for f in page.frames if f.url]
                                     log(f"      [警告] 詳細画面が見つかりません。現在あるフレームURL一覧: {urls}")
@@ -284,7 +244,6 @@ def main():
                                                     row_dict[f"金額{k+1}"] = valid[k][1]
                                     except: pass
 
-                                    # ★【ご提案の機能】その場で即、取得した中身を全出力
                                     log(f"      ⚡ [即時出力成功] 番号:{row_dict['施行番号/案件番号']} | 状態:{row_dict['状態']} | 案件名:{row_dict['工事・業務名'][:20]}...")
 
                                     all_data_dicts.append(row_dict)
@@ -300,31 +259,30 @@ def main():
                                 time.sleep(10)
                             else: break
 
-         # ↓↓↓【テスト用：ここから追加】↓↓↓
+            # ─── テスト出力 ───
             log("=" * 80)
             log("★【テスト出力】取得データ一覧（GAS送信直前）")
             log(f"総件数: {len(all_data_dicts)} 件")
             log("=" * 80)
             for idx, item in enumerate(all_data_dicts, 1):
-                # 契約方法と業種種別をitemから直接引っ張ってきて条件タグを作ります
                 keiyaku = item.get('契約方法', '不明')
                 gyosyu = item.get('業種 種別', '不明')
                 cond_tag = f"{item['自治体名']} / {keiyaku} / {gyosyu}"
 
-                # 1行目にそのデータの「抽出条件」が詳しく出るように変更
                 log(f"[{idx}] 条件:【{cond_tag}】")
                 log(f"      番号: {item['施行番号/案件番号']} | 日付: {item['開札（予定）日']} | 状態: {item['状態']}")
                 log(f"      案件名: {item['工事・業務名']}")
                 log(f"      場所  : {item['場所']}")
                 log("-" * 80)
             log("=" * 80)
-            # ↑↑↑【テスト用：ここまで追加】↑↑↑
-
             
+            # GASへ送信
             send_to_spreadsheet(all_data_dicts)
 
         except Exception as e:
             log(f"エラー発生: {e}")
+            # ★【修正】エラーが起きた場合は、Actionsを確実に赤ランプ（失敗）にする
+            sys.exit(1)
         finally:
             browser.close()
 
