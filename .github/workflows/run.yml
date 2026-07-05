@@ -2,7 +2,7 @@ name: Daily Construction Data Update
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 毎日日本時間午前9時に実行
+    - cron: '0 19 * * *'  # UTC 19:00 ＝ 日本時間 翌朝4:00
   workflow_dispatch:      # 手動実行ボタン
 
 permissions:
