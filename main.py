@@ -93,14 +93,14 @@ def main():
     # =========================================================================
 
     # 180日前を設定
-    one_month_ago = datetime.now() - timedelta(days=180)
+    one_month_ago = datetime.now() - timedelta(days=0)
     y_str, m_str, d_str = str(one_month_ago.year), str(one_month_ago.month), str(one_month_ago.day)
 
     targets = [
         {"name": "熊本県", "code": "0100", "n_types": ["1002011", "2002027"], "g_list": ["0100010", "0100130", "0100050"], "h_tanto": "25"},
-        {"name": "南小国町", "code": "0423", "n_types": [""], "g_list": [""], "h_tanto": ""},
-        {"name": "小国町", "code": "0424", "n_types": [""], "g_list": ["0100010", "0100130", "0100050"], "h_tanto": ""},
-        {"name": "菊池市","code": "0210","n_types": ["2002027"],"g_list": ["0100010", "0100130"],"h_tanto": ""}
+      #  {"name": "南小国町", "code": "0423", "n_types": [""], "g_list": [""], "h_tanto": ""},
+      #  {"name": "小国町", "code": "0424", "n_types": [""], "g_list": ["0100010", "0100130", "0100050"], "h_tanto": ""},
+      #  {"name": "菊池市","code": "0210","n_types": ["2002027"],"g_list": ["0100010", "0100130"],"h_tanto": ""}
     ]
     
     all_data_dicts = []
