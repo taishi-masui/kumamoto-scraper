@@ -2,12 +2,11 @@ name: Daily Construction Data Update
 
 on:
   schedule:
-    - cron: '15 22 * * *'  # 日本時間 朝7:15（サーバーが最も安定する安全な時間帯）
+    - cron: '0 0 * * *'  # 毎日日本時間午前9時に実行
   workflow_dispatch:      # 手動実行ボタン
 
 permissions:
-  actions: write          # ワークフローを延命（enable）するための公式権限
-  contents: write         # データ書き込み用の通常権限
+  contents: write         # 書き込み権限
 
 # Node.js 20の警告を消去するための設定
 env:
@@ -40,9 +39,10 @@ jobs:
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
         run: python main.py
 
-      # ─── ★【決定版】60日スリープをファイル名指定で確実に、エラーなしで回避する処理 ───
-      - name: Keepalive Workflow (Official Way)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Keepalive (Manual)
         run: |
-          gh workflow enable run.yml
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "Keepalive (automatically committed)"
+          # --force を付与して以前の衝突エラーを強制解消し、同期させる
+          git push origin main --force
