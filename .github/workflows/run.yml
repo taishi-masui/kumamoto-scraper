@@ -2,11 +2,11 @@ name: Daily Construction Data Update
 
 on:
   schedule:
-    - cron: '15 22 * * *'  # UTC 19:00 ＝ 日本時間 翌朝4:00
+    - cron: '15 22 * * *'  # 協定世界時(UTC)の22:15 ＝ 日本時間 朝7:15（サーバーが超安定する時間）
   workflow_dispatch:      # 手動実行ボタン
 
 permissions:
-  contents: write         # 書き込み権限
+  contents: write         # データ書き込み用の通常権限
 
 # Node.js 20の警告を消去するための設定
 env:
@@ -38,11 +38,3 @@ jobs:
         env:
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
         run: python main.py
-
-      - name: Keepalive (Manual)
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git commit --allow-empty -m "Keepalive (automatically committed)"
-          # --force を付与して以前の衝突エラーを強制解消し、同期させる
-          git push origin main --force
