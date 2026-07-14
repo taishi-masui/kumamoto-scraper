@@ -2,10 +2,11 @@ name: Daily Construction Data Update
 
 on:
   schedule:
-    - cron: '15 22 * * *'  # 日本時間 朝7:15（サーバーが安定する時間）
+    - cron: '15 22 * * *'  # 日本時間 朝7:15（サーバーが安定する安全な時間）
   workflow_dispatch:      # 手動実行ボタン
 
 permissions:
+  actions: write          # 👈 ★超重要：ワークフロー自身を再有効化（延命）するための公式権限
   contents: write         # 通常ファイルの書き込み用
 
 env:
@@ -37,8 +38,9 @@ jobs:
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
         run: python main.py
 
-      # ─── ★【復活】エラーを出さずに6ヶ月スリープを永続的に回避する処理 ───
-      - name: Keepalive Workflow
-        uses: gautamkrishnar/keepalive-workflow@v1
-        with:
-          use_api: true # 👈 コマンドではなくGitHub公式API経由で生存アピールをするため、セキュリティエラーが起きません
+      # ─── ★【安全＆公式】60日スリープをGitHub公式機能で回避する処理 ───
+      - name: Keepalive Workflow (Official Way)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow enable "Daily Construction Data Update"
