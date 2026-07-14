@@ -2,13 +2,12 @@ name: Daily Construction Data Update
 
 on:
   schedule:
-    - cron: '15 22 * * *'  # 協定世界時(UTC)の22:15 ＝ 日本時間 朝7:15（サーバーが超安定する時間）
+    - cron: '15 22 * * *'  # 日本時間 朝7:15（サーバーが安定する時間）
   workflow_dispatch:      # 手動実行ボタン
 
 permissions:
-  contents: write         # データ書き込み用の通常権限
+  contents: write         # 通常ファイルの書き込み用
 
-# Node.js 20の警告を消去するための設定
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -20,7 +19,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: true
-          # 衝突回避のため最新の状態を取得
           fetch-depth: 0
 
       - name: Set up Python
@@ -38,3 +36,9 @@ jobs:
         env:
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
         run: python main.py
+
+      # ─── ★【復活】エラーを出さずに6ヶ月スリープを永続的に回避する処理 ───
+      - name: Keepalive Workflow
+        uses: gautamkrishnar/keepalive-workflow@v1
+        with:
+          use_api: true # 👈 コマンドではなくGitHub公式API経由で生存アピールをするため、セキュリティエラーが起きません
