@@ -34,10 +34,15 @@ jobs:
           pip install playwright
           playwright install chromium
 
-      - name: Run scraper
+      - name: Run scraper with retry
+        uses: nick-fields/retry@v3
         env:
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
-        run: python main.py
+        with:
+          timeout_minutes: 120 # 1回の実行上限時間（80分以上かかるため120分に設定）
+          max_attempts: 3 # 最大試行回数（初回 + リトライ2回 = 計3回）
+          retry_delay_seconds: 600 # 失敗後の待ち時間（600秒 = 10分）
+          command: python main.py # 実行するコマンド
 
       - name: Keepalive (Manual)
         run: |
