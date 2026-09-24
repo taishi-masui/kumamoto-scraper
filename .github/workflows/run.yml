@@ -5,10 +5,6 @@ on:
     - cron: '0 0 * * *'  # 毎日日本時間午前9時に実行
   workflow_dispatch:      # 手動実行ボタン
 
-permissions:
-  contents: write         # リポジトリ内容の書き込み権限
-  workflows: write        # ★追加: ワークフローファイルの変更権限
-
 # Node.js 20の警告を消去するための設定
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -16,6 +12,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write     # リポジトリへの書き込み（Push）権限を正しく許可
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
