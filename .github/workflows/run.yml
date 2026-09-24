@@ -6,7 +6,8 @@ on:
   workflow_dispatch:      # 手動実行ボタン
 
 permissions:
-  contents: write         # 書き込み権限
+  contents: write         # リポジトリ内容の書き込み権限
+  workflows: write        # ★追加: ワークフローファイルの変更権限
 
 # Node.js 20の警告を消去するための設定
 env:
