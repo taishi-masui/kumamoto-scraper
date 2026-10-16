@@ -118,7 +118,7 @@ def main():
                 for n_type in t["n_types"]:
                     for g_val in t["g_list"]:
                         log(f"--- {t['name']} (方式:{n_type if n_type else '全'} / 業種:{g_val if g_val else '全'}) ---")
-                        page.goto(f"https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no={t['code']}", wait_until="networkidle")
+                        page.goto(f"https://ebid.kumamoto-idc.pref.kumamoto.jp/PPIAccepter/AccepterServlet?kikan_no={t['code']}", wait_until="domcontentloaded")
                         
                         menu_f = None
                         for _ in range(15):
